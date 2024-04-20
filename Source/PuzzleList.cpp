@@ -8,12 +8,12 @@
 
 void PuzzleList::GenerateAllN()
 {
-	generator->setLoadingData(336);
+	generator->setLoadingData(345);
 	CopyTargets();
 	GenerateTutorialN();
 	GenerateSymmetryN();
 	GenerateQuarryN();
-	//GenerateBunkerN(); //Can't randomize because panels refuse to render the symbols
+	GenerateBunkerN(); //Can't randomize because panels refuse to render the symbols
 	GenerateSwampN();
 	GenerateTreehouseN();
 	GenerateTownN();
@@ -344,9 +344,35 @@ void PuzzleList::GenerateQuarryN()
 
 void PuzzleList::GenerateBunkerN()
 {
-	//I would randomize this, if I could get the panels to actually render the symbols.
-	//Unfortunately, the path is rendered to a 3D model that doesn't have any geometry between the grid lines.
-	//Somehow, I would either have to change the model, or make the puzzle render to the background texture instead.
+	//Textures Generate, but not actually applied in-game yet
+	generator->setLoadingData("Bunker", 9);
+	generator->resetConfig();
+	generator->setGridSize(3, 3);
+	generator->generate(0x09F7D, Decoration::Stone | Decoration::Color::Purple, 1, Decoration::Stone | Decoration::Color::Green, 1);
+	Panel(0x09F7D).generateWTX(); //Probably a more-correct way to call this. Or maybe move the method out of `Panel` entirely? I wanted to read all of the generated `_grid` to make the matching texture.
+	generator->generate(0x09FDC, Decoration::Stone | Decoration::Color::Purple, 1, Decoration::Stone | Decoration::Color::Green, 1, Decoration::Stone | Decoration::Color::White, 1);
+	Panel(0x09FDC).generateWTX();
+	generator->generate(0x09FF7, Decoration::Stone | Decoration::Color::Purple, 2, Decoration::Stone | Decoration::Color::Green, 2, Decoration::Stone | Decoration::Color::White, 1);
+	Panel(0x09FF7).generateWTX();
+	generator->generate(0x09F82, Decoration::Stone | Decoration::Color::Purple, 4, Decoration::Stone | Decoration::Color::Green, 1, Decoration::Stone | Decoration::Color::White, 4);
+	Panel(0x09F82).generateWTX();
+	generator->setGridSize(4, 4);
+	generator->generate(0x09FF8, Decoration::Stone | Decoration::Color::Purple, 2, Decoration::Stone | Decoration::Color::Green, 1, Decoration::Stone | Decoration::Color::White, 2);
+	Panel(0x09FF8).generateWTX();
+
+	generator->setGridSize(3, 3);
+	generator->generate(0x09D9F, Decoration::Stone | Decoration::Color::White, 1, Decoration::Stone | Decoration::Color::Yellow, 1, Decoration::Stone | Decoration::Color::Blue, 1, Decoration::Stone | Decoration::Color::Magenta, 1);
+	Panel(0x09D9F).generateWTX();
+	generator->setGridSize(4, 4);
+	generator->generate(0x09DA1, Decoration::Stone | Decoration::Color::White, 2, Decoration::Stone | Decoration::Color::Yellow, 2, Decoration::Stone | Decoration::Color::Blue, 2, Decoration::Stone | Decoration::Color::Magenta, 2);
+	Panel(0x09DA1).generateWTX();
+	generator->generate(0x09DA2, Decoration::Stone | Decoration::Color::White, 2, Decoration::Stone | Decoration::Color::Yellow, 2, Decoration::Stone | Decoration::Color::Blue, 2, Decoration::Stone | Decoration::Color::Magenta, 2);
+	Panel(0x09DA2).generateWTX();
+	generator->setGridSize(5, 4);
+	generator->generate(0x09DAF, Decoration::Stone | Decoration::Color::White, 4, Decoration::Stone | Decoration::Color::Yellow, 3, Decoration::Stone | Decoration::Color::Blue, 3, Decoration::Stone | Decoration::Color::Magenta, 2);
+	//generator->_panel->_endpoints.push_back(Endpoint(5, 0, Endpoint::Direction::UP_RIGHT, Decoration::Exit)); //wasn't sure how to do this
+	//generator->write(0x09DAF);
+	Panel(0x09DAF).generateWTX();
 }
 
 void PuzzleList::GenerateSwampN()

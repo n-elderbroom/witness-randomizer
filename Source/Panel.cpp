@@ -9,6 +9,7 @@
 #include "Watchdog.h"
 #include <sstream>
 #include <fstream>
+#include <wtx_tools.h>
 
 int Point::pillarWidth = 0;
 std::vector<Panel> Panel::generatedPanels;
@@ -136,7 +137,8 @@ void Panel::SetGridSymbol(int x, int y, Decoration::Shape symbol, Decoration::Co
 	if (symbol == Decoration::Start) _startpoints.push_back({ x, y });
 	if (symbol == Decoration::Exit) {
 		Endpoint::Direction dir;
-		if (y == 0) dir = Endpoint::Direction::UP;
+		if (id == 0x09DAF) dir = Endpoint::Direction::UP_RIGHT; // I assume this is NOT the place for me to put this?
+		else if (y == 0) dir = Endpoint::Direction::UP;
 		else if (y == _height - 1) dir = Endpoint::Direction::DOWN;
 		else if (x == 0) dir = Endpoint::Direction::LEFT;
 		else dir = Endpoint::Direction::RIGHT;
@@ -655,4 +657,46 @@ void Panel::WriteIntersections() {
 		memory->WritePanelData<int>(id, NUM_COLORED_REGIONS, { static_cast<int>(polygons.size()) / 4 });
 		memory->WriteArray<int>(id, COLORED_REGIONS, polygons);
 	}
+}
+
+
+std::vector<int8_t> Panel::generateWTX() {
+
+	// need to flatten _grid into one contiguous array so that rust-code can read it safely. 
+	std::vector<int> flattened; 
+	for (auto row : this->_grid) {
+		for (auto element : row) {
+			flattened.push_back(element);
+		}
+	}
+
+	auto bg = ColorPanelBackground::Blueprint;
+	switch (this->id) {
+	case 0x0A010:
+	case 0x0A01B:
+		bg = ColorPanelBackground::LightGrey;
+		break;
+	case 0x0A01F:
+		bg = ColorPanelBackground::DarkGrey;
+		break;
+	case 0x17E63:
+	case 0x17E67:
+		bg = ColorPanelBackground::White;
+		break;
+	case 0x0A079:
+		bg = ColorPanelBackground::Elevator;
+		break;
+	}
+
+
+	// change to wtx_tools_generate_colorpanel_from_grid() and drop the `id` parameter if you don't want to save images to disk.
+	TextureBuffer tex = wtx_tools_generate_colorpanel_from_grid_and_save((const uint32_t*)&flattened[0], this->_width, this->_height, bg, this->id	);
+	// Rust will continue to hold some knowledge of that memory it allocated to return the `tex`
+	// so we should copy the data to a local variable, and tell rust that we are done and it can free that memory safely.
+	std::vector<int8_t> wtxBuffer = std::vector<int8_t>(tex.data, tex.data + tex.len);
+	
+	//let rust free the memory it allocated
+	free_texbuf(tex);
+
+	return wtxBuffer;
 }
