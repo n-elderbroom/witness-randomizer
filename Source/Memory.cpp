@@ -1046,6 +1046,18 @@ void Memory::findImportantFunctionAddresses(){
 
 		return true;
 	});
+
+	//TODO these values probably only work in steam release version
+	this->globalTextureCatalog = _baseAddress + 0x4697eb8; 
+	// this is really a pointer to the texture catalog, not the catalog itself. manually dereference.
+	// we want to point directly at the catalog, not to another pointer
+	int64_t texcatalogpointer = 0;
+	ReadAbsolute((LPCVOID)this->globalTextureCatalog, &texcatalogpointer, sizeof(int64_t));
+	this->globalTextureCatalog = texcatalogpointer;
+
+	this->acquireByNameFunction = _baseAddress + 0x33a810;
+	this->loadTextureMapFunction = _baseAddress + 0x35a330; 
+
 }
 
 void Memory::findMovementSpeed() {
@@ -1773,4 +1785,132 @@ void Memory::MakeEPGlow(std::string name, std::vector<byte> patternPointBytes) {
 	auto thread2 = CreateRemoteThread(_handle, NULL, 0, (LPTHREAD_START_ROUTINE)allocation_start2, NULL, 0, 0);
 
 	WaitForSingleObject(thread2, INFINITE);
+}
+
+
+uint64_t Memory::GetTextureMapFromCatalog(std::string texturename) {
+	//first, we need to alloc some space in the game's process for the char* that will have the texture name
+	char buffer1[100];
+	memset(buffer1, 0, sizeof(buffer1)); //fills with 0s
+	strcpy_s(buffer1, texturename.c_str());
+	//__int64 buffer1pointer = CallMallocFunction(sizeof(buffer1));
+	auto buffer1pointer = reinterpret_cast<uint64_t>(VirtualAllocEx(_handle, NULL, sizeof(buffer1), MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
+
+	auto resultpointer = reinterpret_cast<uint64_t>(VirtualAllocEx(_handle, NULL, sizeof(uint64_t), MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
+
+	WriteProcessMemory(_handle, (LPVOID)buffer1pointer, buffer1, sizeof(buffer1), NULL);
+
+	//now, we need to call the acquire_by_name function
+	unsigned char asmBuff[] =
+		"\x48\xB8\x00\x00\x00\x00\x00\x00\x00\x00" //mov rax [address] // address of acquire_by_name
+		"\x48\xB9\x00\x00\x00\x00\x00\x00\x00\x00" //mov rcx [address] // address of the texture catalog
+		"\x48\xBA\x00\x00\x00\x00\x00\x00\x00\x00" //mov rdx [address] // address of our char* buffer with the texture name
+		"\x41\xB0\x01" //mov r8b 1 //unknown bool, but game sets this to 1 when it calls this
+		"\x41\xB1\x00" //mov r9b 0 //unknown bool, but game sets this to 0 when it calls this
+		"\x48\x83\xEC\x48"// sub rsp,48
+		"\xFF\xD0" //call rax
+		"\x48\x83\xC4\x48" // add rsp,48
+		"\x48\xA3\x00\x00\x00\x00\x00\x00\x00\x00" //movabs [pointer], rax // hold full 64 bit result somewhere
+		"\xC3"; //ret
+	asmBuff[2] = acquireByNameFunction & 0xff;
+	asmBuff[3] = (acquireByNameFunction >> 8) & 0xff;
+	asmBuff[4] = (acquireByNameFunction >> 16) & 0xff;
+	asmBuff[5] = (acquireByNameFunction >> 24) & 0xff;
+	asmBuff[6] = (acquireByNameFunction >> 32) & 0xff;
+	asmBuff[7] = (acquireByNameFunction >> 40) & 0xff;
+	asmBuff[8] = (acquireByNameFunction >> 48) & 0xff;
+	asmBuff[9] = (acquireByNameFunction >> 56) & 0xff;
+	asmBuff[12] = globalTextureCatalog & 0xff;
+	asmBuff[13] = (globalTextureCatalog >> 8) & 0xff;
+	asmBuff[14] = (globalTextureCatalog >> 16) & 0xff;
+	asmBuff[15] = (globalTextureCatalog >> 24) & 0xff;
+	asmBuff[16] = (globalTextureCatalog >> 32) & 0xff;
+	asmBuff[17] = (globalTextureCatalog >> 40) & 0xff;
+	asmBuff[18] = (globalTextureCatalog >> 48) & 0xff;
+	asmBuff[19] = (globalTextureCatalog >> 56) & 0xff;
+	asmBuff[22] = buffer1pointer & 0xff;
+	asmBuff[23] = (buffer1pointer >> 8) & 0xff;
+	asmBuff[24] = (buffer1pointer >> 16) & 0xff;
+	asmBuff[25] = (buffer1pointer >> 24) & 0xff;
+	asmBuff[26] = (buffer1pointer >> 32) & 0xff;
+	asmBuff[27] = (buffer1pointer >> 40) & 0xff;
+	asmBuff[28] = (buffer1pointer >> 48) & 0xff;
+	asmBuff[29] = (buffer1pointer >> 56) & 0xff;
+	asmBuff[48] = resultpointer & 0xff;
+	asmBuff[49] = (resultpointer >> 8) & 0xff;
+	asmBuff[50] = (resultpointer >> 16) & 0xff;
+	asmBuff[51] = (resultpointer >> 24) & 0xff;
+	asmBuff[52] = (resultpointer >> 32) & 0xff;
+	asmBuff[53] = (resultpointer >> 40) & 0xff;
+	asmBuff[54] = (resultpointer >> 48) & 0xff;
+	asmBuff[55] = (resultpointer >> 56) & 0xff;
+
+
+	SIZE_T asm_allocation = sizeof(asmBuff);
+	auto asm_alloc_start = VirtualAllocEx(_handle, NULL, asm_allocation, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+	WriteProcessMemory(_handle, asm_alloc_start, asmBuff, asm_allocation, NULL);
+	auto thread = CreateRemoteThread(_handle, NULL, 0, (LPTHREAD_START_ROUTINE)asm_alloc_start, NULL, 0, 0);
+
+	WaitForSingleObject(thread, INFINITE);
+
+	// now as much as i'd like to just call GetExitCodeThread() to grab the result directly from the thread
+	// the value tends to be greater than 32 bits, and does not fit in the DWORD that the thread can return.
+	// the thread manually stores the result at resultpointer, so we can retrieve it here
+	uint64_t result = 0;
+	ReadAbsolute((LPCVOID)resultpointer, &result, sizeof(uint64_t));
+	return result;
+}
+
+
+void Memory::LoadTexture(uint64_t texturemappointer, std::vector<uint8_t> wtxbuffer) {
+	//first, alloc a place in the game's memory for our wtx texture
+	auto wtxAlloc = reinterpret_cast<uint64_t>(VirtualAllocEx(_handle, NULL, wtxbuffer.size(), MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
+	//then copy the texture there
+	WriteProcessMemory(_handle, (LPVOID) wtxAlloc, &wtxbuffer[0], wtxbuffer.size(), NULL);
+	
+	unsigned char asmBuff[] =
+		"\x48\xB8\x00\x00\x00\x00\x00\x00\x00\x00" //mov rax [address] // load texture function
+		"\x48\xB9\x00\x00\x00\x00\x00\x00\x00\x00" //mov rcx [address] //address of texture map
+		"\x48\xBA\x00\x00\x00\x00\x00\x00\x00\x00" //mov rdx [address] //address of texture to load
+		"\x41\xB8\x00\x00\x00\x00" //mov r8d, [const] // size of the texture
+		"\x48\x83\xEC\x48"// sub rsp,48
+		"\xFF\xD0" //call rax
+		"\x48\x83\xC4\x48" // add rsp,48
+		"\xC3"; //ret
+	uint32_t size_parameter = (uint32_t) wtxbuffer.size(); 
+	asmBuff[2] = loadTextureMapFunction & 0xff;
+	asmBuff[3] = (loadTextureMapFunction >> 8) & 0xff;
+	asmBuff[4] = (loadTextureMapFunction >> 16) & 0xff;
+	asmBuff[5] = (loadTextureMapFunction >> 24) & 0xff;
+	asmBuff[6] = (loadTextureMapFunction >> 32) & 0xff;
+	asmBuff[7] = (loadTextureMapFunction >> 40) & 0xff;
+	asmBuff[8] = (loadTextureMapFunction >> 48) & 0xff;
+	asmBuff[9] = (loadTextureMapFunction >> 56) & 0xff;
+	asmBuff[12] = texturemappointer & 0xff;
+	asmBuff[13] = (texturemappointer >> 8) & 0xff;
+	asmBuff[14] = (texturemappointer >> 16) & 0xff;
+	asmBuff[15] = (texturemappointer >> 24) & 0xff;
+	asmBuff[16] = (texturemappointer >> 32) & 0xff;
+	asmBuff[17] = (texturemappointer >> 40) & 0xff;
+	asmBuff[18] = (texturemappointer >> 48) & 0xff;
+	asmBuff[19] = (texturemappointer >> 56) & 0xff;
+	asmBuff[22] = wtxAlloc & 0xff;
+	asmBuff[23] = (wtxAlloc >> 8) & 0xff;
+	asmBuff[24] = (wtxAlloc >> 16) & 0xff;
+	asmBuff[25] = (wtxAlloc >> 24) & 0xff;
+	asmBuff[26] = (wtxAlloc >> 32) & 0xff;
+	asmBuff[27] = (wtxAlloc >> 40) & 0xff;
+	asmBuff[28] = (wtxAlloc >> 48) & 0xff;
+	asmBuff[29] = (wtxAlloc >> 56) & 0xff;
+	asmBuff[32] = size_parameter & 0xff;
+	asmBuff[33] = (size_parameter >> 8) & 0xff;
+	asmBuff[34] = (size_parameter >> 16) & 0xff;
+	asmBuff[35] = (size_parameter >> 24) & 0xff;
+	
+	SIZE_T asm_allocation = sizeof(asmBuff);
+	auto asm_alloc_start = VirtualAllocEx(_handle, NULL, asm_allocation, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+	WriteProcessMemory(_handle, asm_alloc_start, asmBuff, asm_allocation, NULL);
+	auto thread = CreateRemoteThread(_handle, NULL, 0, (LPTHREAD_START_ROUTINE)asm_alloc_start, NULL, 0, 0);
+
+	WaitForSingleObject(thread, INFINITE);
 }

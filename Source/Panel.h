@@ -187,7 +187,7 @@ private:
 	void WriteIntersections();
 	void ReadDecorations();
 	void WriteDecorations();
-	std::vector<int8_t> generateWTX();
+	std::vector<uint8_t> generateWTX();
 
 
 	Point get_sym_point(int x, int y, Symmetry symmetry)

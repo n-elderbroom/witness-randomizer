@@ -249,6 +249,9 @@ public:
 
 	void MakeEPGlow(std::string name, std::vector<byte> patternPointBytes);
 
+	uint64_t GetTextureMapFromCatalog(std::string texturename);
+	void LoadTexture(uint64_t texturemappointer, std::vector<uint8_t> wtxbuffer);
+
 	void StopDesertLaserPropagation();
 	void SetInfiniteChallenge(bool enable);
 
@@ -328,6 +331,9 @@ public:
 	uint64_t windmillCurrentlyTurning;
 	uint64_t windmillMaxTurnSpeed;
 	uint64_t windmillCurrentTurnSpeed;
+	uint64_t globalTextureCatalog;
+	uint64_t acquireByNameFunction;
+	uint64_t loadTextureMapFunction;
 
 	std::vector<int> ACTIVEPANELOFFSETS;
 	int ACCELERATION;

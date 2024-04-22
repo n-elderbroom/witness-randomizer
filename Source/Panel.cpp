@@ -10,6 +10,7 @@
 #include <sstream>
 #include <fstream>
 #include <wtx_tools.h>
+#include "Panels.h"
 
 int Point::pillarWidth = 0;
 std::vector<Panel> Panel::generatedPanels;
@@ -660,7 +661,7 @@ void Panel::WriteIntersections() {
 }
 
 
-std::vector<int8_t> Panel::generateWTX() {
+std::vector<uint8_t> Panel::generateWTX() {
 
 	// need to flatten _grid into one contiguous array so that rust-code can read it safely. 
 	std::vector<int> flattened; 
@@ -689,14 +690,21 @@ std::vector<int8_t> Panel::generateWTX() {
 	}
 
 
-	// change to wtx_tools_generate_colorpanel_from_grid() and drop the `id` parameter if you don't want to save images to disk.
-	TextureBuffer tex = wtx_tools_generate_colorpanel_from_grid_and_save((const uint32_t*)&flattened[0], this->_width, this->_height, bg, this->id	);
+	TextureBuffer tex = wtx_tools_generate_colorpanel_from_grid((const uint32_t*)&flattened[0], this->_width, this->_height, bg	);
 	// Rust will continue to hold some knowledge of that memory it allocated to return the `tex`
 	// so we should copy the data to a local variable, and tell rust that we are done and it can free that memory safely.
-	std::vector<int8_t> wtxBuffer = std::vector<int8_t>(tex.data, tex.data + tex.len);
-	
+	std::vector<uint8_t> wtxBuffer = std::vector<uint8_t>(tex.data, tex.data + tex.len);
+
 	//let rust free the memory it allocated
 	free_texbuf(tex);
 
-	return wtxBuffer;
+	auto texturename = textureNames[this->id];
+	if (!texturename.empty()) {
+		Memory* memory = Memory::get();
+		auto texmap = memory->GetTextureMapFromCatalog(texturename); //do we need .texture at the end of this string?
+		memory->LoadTexture(texmap, wtxBuffer); //loads in game!
+	} else {
+		//no texture found for this ID panel.
+	}
+	return wtxBuffer; 
 }
