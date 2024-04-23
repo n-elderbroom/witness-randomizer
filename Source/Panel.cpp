@@ -9,8 +9,6 @@
 #include "Watchdog.h"
 #include <sstream>
 #include <fstream>
-#include <wtx_tools.h>
-#include "Panels.h"
 
 int Point::pillarWidth = 0;
 std::vector<Panel> Panel::generatedPanels;
@@ -658,53 +656,4 @@ void Panel::WriteIntersections() {
 		memory->WritePanelData<int>(id, NUM_COLORED_REGIONS, { static_cast<int>(polygons.size()) / 4 });
 		memory->WriteArray<int>(id, COLORED_REGIONS, polygons);
 	}
-}
-
-
-std::vector<uint8_t> Panel::generateWTX() {
-
-	// need to flatten _grid into one contiguous array so that rust-code can read it safely. 
-	std::vector<int> flattened; 
-	for (auto row : this->_grid) {
-		for (auto element : row) {
-			flattened.push_back(element);
-		}
-	}
-
-	auto bg = ColorPanelBackground::Blueprint;
-	switch (this->id) {
-	case 0x0A010:
-	case 0x0A01B:
-		bg = ColorPanelBackground::LightGrey;
-		break;
-	case 0x0A01F:
-		bg = ColorPanelBackground::DarkGrey;
-		break;
-	case 0x17E63:
-	case 0x17E67:
-		bg = ColorPanelBackground::White;
-		break;
-	case 0x0A079:
-		bg = ColorPanelBackground::Elevator;
-		break;
-	}
-
-
-	TextureBuffer tex = wtx_tools_generate_colorpanel_from_grid((const uint32_t*)&flattened[0], this->_width, this->_height, bg	);
-	// Rust will continue to hold some knowledge of that memory it allocated to return the `tex`
-	// so we should copy the data to a local variable, and tell rust that we are done and it can free that memory safely.
-	std::vector<uint8_t> wtxBuffer = std::vector<uint8_t>(tex.data, tex.data + tex.len);
-
-	//let rust free the memory it allocated
-	free_texbuf(tex);
-
-	auto texturename = textureNames[this->id];
-	if (!texturename.empty()) {
-		Memory* memory = Memory::get();
-		auto texmap = memory->GetTextureMapFromCatalog(texturename); //do we need .texture at the end of this string?
-		memory->LoadTexture(texmap, wtxBuffer); //loads in game!
-	} else {
-		//no texture found for this ID panel.
-	}
-	return wtxBuffer; 
 }

@@ -207,6 +207,7 @@
     <ClInclude Include="Randomizer.h" />
     <ClInclude Include="Special.h" />
     <ClInclude Include="StringSplitter.h" />
+    <ClInclude Include="TextureLoader.h" />
     <ClInclude Include="Utilities.h" />
     <ClInclude Include="Watchdog.h" />
   </ItemGroup>
@@ -235,6 +236,7 @@
     <ClCompile Include="Random.cpp" />
     <ClCompile Include="Randomizer.cpp" />
     <ClCompile Include="Special.cpp" />
+    <ClCompile Include="TextureLoader.cpp" />
     <ClCompile Include="Watchdog.cpp" />
   </ItemGroup>
   <ItemGroup>

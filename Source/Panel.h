@@ -187,8 +187,6 @@ private:
 	void WriteIntersections();
 	void ReadDecorations();
 	void WriteDecorations();
-	std::vector<uint8_t> generateWTX();
-
 
 	Point get_sym_point(int x, int y, Symmetry symmetry)
 	{
@@ -447,4 +445,5 @@ private:
 	friend class MultiGenerate;
 	friend class ArrowWatchdog;
 	friend class APRandomizer;
+	friend class TextureLoader;
 };

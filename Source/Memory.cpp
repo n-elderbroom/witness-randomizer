@@ -115,7 +115,6 @@ void Memory::create() {
 		_singleton->findActivePanel();
 		_singleton->findPlayerPosition();
 		_singleton->findImportantFunctionAddresses();
-		_singleton->LoadPackage("save_58472");
 	}
 }
 

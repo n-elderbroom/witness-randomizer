@@ -5,6 +5,7 @@
 #include "PuzzleList.h"
 #include "Watchdog.h"
 #include "ClientWindow.h"
+#include "TextureLoader.h"
 
 void PuzzleList::GenerateAllN()
 {
@@ -25,6 +26,7 @@ void PuzzleList::GenerateAllN()
 	GenerateJungleN();
 	GenerateMountainN();
 	GenerateCavesN();
+	TextureLoader::get()->loadTextures();
 	ClientWindow::get()->setStatusMessage("Generation complete!");
 	(new ArrowWatchdog(0x0056E))->start(); //Easy way to close the randomizer when the game is done
 	//GenerateShadowsN(); //Can't randomize
@@ -344,35 +346,34 @@ void PuzzleList::GenerateQuarryN()
 
 void PuzzleList::GenerateBunkerN()
 {
-	//Textures Generate, but not actually applied in-game yet
+	auto texloader = TextureLoader::get();
+
 	generator->setLoadingData("Bunker", 9);
 	generator->resetConfig();
 	generator->setGridSize(3, 3);
 	generator->generate(0x09F7D, Decoration::Stone | Decoration::Color::Purple, 1, Decoration::Stone | Decoration::Color::Green, 1);
-	Panel(0x09F7D).generateWTX(); //Probably a more-correct way to call this. Or maybe move the method out of `Panel` entirely? I wanted to read all of the generated `_grid` to make the matching texture.
+	texloader->generateTexture(0x09F7D);
 	generator->generate(0x09FDC, Decoration::Stone | Decoration::Color::Purple, 1, Decoration::Stone | Decoration::Color::Green, 1, Decoration::Stone | Decoration::Color::White, 1);
-	Panel(0x09FDC).generateWTX();
+	texloader->generateTexture(0x09FDC);
 	generator->generate(0x09FF7, Decoration::Stone | Decoration::Color::Purple, 2, Decoration::Stone | Decoration::Color::Green, 2, Decoration::Stone | Decoration::Color::White, 1);
-	Panel(0x09FF7).generateWTX();
+	texloader->generateTexture(0x09FF7);
 	generator->generate(0x09F82, Decoration::Stone | Decoration::Color::Purple, 4, Decoration::Stone | Decoration::Color::Green, 1, Decoration::Stone | Decoration::Color::White, 4);
-	Panel(0x09F82).generateWTX();
+	texloader->generateTexture(0x09F82);
 	generator->setGridSize(4, 4);
 	generator->generate(0x09FF8, Decoration::Stone | Decoration::Color::Purple, 2, Decoration::Stone | Decoration::Color::Green, 1, Decoration::Stone | Decoration::Color::White, 2);
-	Panel(0x09FF8).generateWTX();
+	texloader->generateTexture(0x09FF8);
 
 	generator->setGridSize(3, 3);
 	generator->generate(0x09D9F, Decoration::Stone | Decoration::Color::White, 1, Decoration::Stone | Decoration::Color::Yellow, 1, Decoration::Stone | Decoration::Color::Blue, 1, Decoration::Stone | Decoration::Color::Magenta, 1);
-	Panel(0x09D9F).generateWTX();
+	texloader->generateTexture(0x09D9F);
 	generator->setGridSize(4, 4);
 	generator->generate(0x09DA1, Decoration::Stone | Decoration::Color::White, 2, Decoration::Stone | Decoration::Color::Yellow, 2, Decoration::Stone | Decoration::Color::Blue, 2, Decoration::Stone | Decoration::Color::Magenta, 2);
-	Panel(0x09DA1).generateWTX();
+	texloader->generateTexture(0x09DA1);
 	generator->generate(0x09DA2, Decoration::Stone | Decoration::Color::White, 2, Decoration::Stone | Decoration::Color::Yellow, 2, Decoration::Stone | Decoration::Color::Blue, 2, Decoration::Stone | Decoration::Color::Magenta, 2);
-	Panel(0x09DA2).generateWTX();
+	texloader->generateTexture(0x09DA2);
 	generator->setGridSize(5, 4);
 	generator->generate(0x09DAF, Decoration::Stone | Decoration::Color::White, 4, Decoration::Stone | Decoration::Color::Yellow, 3, Decoration::Stone | Decoration::Color::Blue, 3, Decoration::Stone | Decoration::Color::Magenta, 2);
-	//generator->_panel->_endpoints.push_back(Endpoint(5, 0, Endpoint::Direction::UP_RIGHT, Decoration::Exit)); //wasn't sure how to do this
-	//generator->write(0x09DAF);
-	Panel(0x09DAF).generateWTX();
+	texloader->generateTexture(0x09DAF);
 }
 
 void PuzzleList::GenerateSwampN()
