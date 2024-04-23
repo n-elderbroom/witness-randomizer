@@ -251,6 +251,7 @@ public:
 
 	uint64_t GetTextureMapFromCatalog(std::string texturename);
 	void LoadTexture(uint64_t texturemappointer, std::vector<uint8_t> wtxbuffer);
+	void LoadPackage(std::string packagename);
 
 	void StopDesertLaserPropagation();
 	void SetInfiniteChallenge(bool enable);
@@ -334,6 +335,7 @@ public:
 	uint64_t globalTextureCatalog;
 	uint64_t acquireByNameFunction;
 	uint64_t loadTextureMapFunction;
+	uint64_t loadPackageFunction;
 
 	std::vector<int> ACTIVEPANELOFFSETS;
 	int ACCELERATION;

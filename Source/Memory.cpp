@@ -115,6 +115,7 @@ void Memory::create() {
 		_singleton->findActivePanel();
 		_singleton->findPlayerPosition();
 		_singleton->findImportantFunctionAddresses();
+		_singleton->LoadPackage("save_58472");
 	}
 }
 
@@ -1057,6 +1058,7 @@ void Memory::findImportantFunctionAddresses(){
 
 	this->acquireByNameFunction = _baseAddress + 0x33a810;
 	this->loadTextureMapFunction = _baseAddress + 0x35a330; 
+	this->loadPackageFunction = _baseAddress + 0x5d030;
 
 }
 
@@ -1790,6 +1792,7 @@ void Memory::MakeEPGlow(std::string name, std::vector<byte> patternPointBytes) {
 
 uint64_t Memory::GetTextureMapFromCatalog(std::string texturename) {
 	//first, we need to alloc some space in the game's process for the char* that will have the texture name
+	//
 	char buffer1[100];
 	memset(buffer1, 0, sizeof(buffer1)); //fills with 0s
 	strcpy_s(buffer1, texturename.c_str());
@@ -1862,6 +1865,10 @@ uint64_t Memory::GetTextureMapFromCatalog(std::string texturename) {
 }
 
 
+// Load a "wtx" texture from `wtxbuffer` into a one of the game's Texture_Maps, pointed to by `texturemappointer` 
+// this is a custom format, which is similar to "dds", but with a quite different header. The format is the same as the .texture files on-disk, but decompressed.
+// see the wtx_tools library for more information, it can convert images to that format, as well as generate select puzzle textures for use here.
+// If the texture is not currently loaded into memory, the asset won't actually be replaced in-game when the player later loads in the asset.
 void Memory::LoadTexture(uint64_t texturemappointer, std::vector<uint8_t> wtxbuffer) {
 	//first, alloc a place in the game's memory for our wtx texture
 	auto wtxAlloc = reinterpret_cast<uint64_t>(VirtualAllocEx(_handle, NULL, wtxbuffer.size(), MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
@@ -1913,4 +1920,49 @@ void Memory::LoadTexture(uint64_t texturemappointer, std::vector<uint8_t> wtxbuf
 	auto thread = CreateRemoteThread(_handle, NULL, 0, (LPTHREAD_START_ROUTINE)asm_alloc_start, NULL, 0, 0);
 
 	WaitForSingleObject(thread, INFINITE);
+}
+
+// Tell the game to load a "package" from disk into memory. The package will remain loaded afterwards. 
+// Doing this allows you to immediately edit textures in memory. Package names are for ex: "save_58472"
+// which would load both save_58472_0.pkg and save_58472_1.pkg. Those packages contain the color-bunker panels.
+void Memory::LoadPackage(std::string packagename) {
+	auto stringAlloc = reinterpret_cast<uint64_t>(VirtualAllocEx(_handle, NULL, packagename.length() + 1 , MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
+	auto pkgname = packagename.c_str();
+	WriteProcessMemory(_handle, (LPVOID)stringAlloc, pkgname, packagename.length()+1, NULL);
+
+	unsigned char asmBuff[] =
+		"\x48\xB8\x00\x00\x00\x00\x00\x00\x00\x00" //mov rax [address] // load texture function
+		"\x48\xB9\x00\x00\x00\x00\x00\x00\x00\x00" //mov rcx [address] // pointer to string with package name
+		"\x48\xBA\x00\x00\x00\x00\x00\x00\x00\x00" //mov rdx [address] // state of package to request. (0 is "loaded", 1 is "unloaded" 2 is "cached", 3 is "uncached".)
+		"\x41\xB8\x00\x00\x00\x00" //mov r8d, [const] //not sure what this number is supposed to be. its always zero
+		"\x41\x83\xc9\xff" // or r9d, 0xffffffff // not sure either. sometimes the game calls this with other values - i think something related to async loading? Which as best i can tell is optional.
+		"\x48\x83\xEC\x48"// sub rsp,48
+		"\xFF\xD0" //call rax
+		"\x48\x83\xC4\x48" // add rsp,48
+		"\xC3"; //ret
+	asmBuff[2] = loadPackageFunction & 0xff;
+	asmBuff[3] = (loadPackageFunction >> 8) & 0xff;
+	asmBuff[4] = (loadPackageFunction >> 16) & 0xff;
+	asmBuff[5] = (loadPackageFunction >> 24) & 0xff;
+	asmBuff[6] = (loadPackageFunction >> 32) & 0xff;
+	asmBuff[7] = (loadPackageFunction >> 40) & 0xff;
+	asmBuff[8] = (loadPackageFunction >> 48) & 0xff;
+	asmBuff[9] = (loadPackageFunction >> 56) & 0xff;
+	asmBuff[12] = stringAlloc & 0xff;
+	asmBuff[13] = (stringAlloc >> 8) & 0xff;
+	asmBuff[14] = (stringAlloc >> 16) & 0xff;
+	asmBuff[15] = (stringAlloc >> 24) & 0xff;
+	asmBuff[16] = (stringAlloc >> 32) & 0xff;
+	asmBuff[17] = (stringAlloc >> 40) & 0xff;
+	asmBuff[18] = (stringAlloc >> 48) & 0xff;
+	asmBuff[19] = (stringAlloc >> 56) & 0xff;
+
+	SIZE_T asm_allocation = sizeof(asmBuff);
+	auto asm_alloc_start = VirtualAllocEx(_handle, NULL, asm_allocation, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+	WriteProcessMemory(_handle, asm_alloc_start, asmBuff, asm_allocation, NULL);
+	auto thread = CreateRemoteThread(_handle, NULL, 0, (LPTHREAD_START_ROUTINE)asm_alloc_start, NULL, 0, 0);
+
+	WaitForSingleObject(thread, INFINITE);
+
+
 }
