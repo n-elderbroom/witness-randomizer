@@ -414,6 +414,9 @@ void Memory::findImportantFunctionAddresses(){
 
 				this->globalTextureCatalog = addressOfRelativePointer + relativePointer + 4;
 
+				int64_t texcatalogpointer = 0;
+				ReadAbsolute((LPCVOID)this->globalTextureCatalog, &texcatalogpointer, sizeof(int64_t));
+				this->globalTextureCatalog = texcatalogpointer;
 				break;
 			}
 		}
@@ -1074,16 +1077,7 @@ void Memory::findImportantFunctionAddresses(){
 
 		return true;
 	});
-
-	//TODO these values probably only work in steam release version
-	this->globalTextureCatalog = _baseAddress + 0x4697eb8; 
-	// this is really a pointer to the texture catalog, not the catalog itself. manually dereference.
-	// we want to point directly at the catalog, not to another pointer
-	int64_t texcatalogpointer = 0;
-	ReadAbsolute((LPCVOID)this->globalTextureCatalog, &texcatalogpointer, sizeof(int64_t));
-	this->globalTextureCatalog = texcatalogpointer;
-
-	this->acquireByNameFunction = _baseAddress + 0x33a810;
+	
 	this->loadTextureMapFunction = _baseAddress + 0x35a330; 
 	this->loadPackageFunction = _baseAddress + 0x5d030;
 

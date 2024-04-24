@@ -332,8 +332,6 @@ public:
 	uint64_t windmillCurrentlyTurning;
 	uint64_t windmillMaxTurnSpeed;
 	uint64_t windmillCurrentTurnSpeed;
-	uint64_t globalTextureCatalog;
-	uint64_t acquireByNameFunction;
 	uint64_t loadTextureMapFunction;
 	uint64_t loadPackageFunction;
 
