@@ -1098,10 +1098,6 @@ void Memory::findImportantFunctionAddresses(){
 
 		return true;
 	});
-	
-	this->loadTextureMapFunction = _baseAddress + 0x35a330; 
-	this->loadPackageFunction = _baseAddress + 0x5d030;
-
 }
 
 void Memory::findMovementSpeed() {
