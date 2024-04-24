@@ -44,7 +44,7 @@ void TextureLoader::generateColorBunkerTexture(int32_t panelid)
 	//let rust free the memory it allocated
 	free_texbuf(tex);
 
-	storedTextures[panelid] = wtxBuffer;
+	storedTextures[textureNames[panelid]] = wtxBuffer;
 }
 
 TextureLoader* TextureLoader::get()
@@ -61,7 +61,7 @@ void TextureLoader::loadTextures()
 	memory->LoadPackage("save_58472"); //tells game to load the color bunker assets into memory, so we can edit them
 
 	for (auto& elem : storedTextures) {
-		auto texturename = textureNames[elem.first];
+		auto texturename = elem.first;
 		auto texmap = memory->GetTextureMapFromCatalog(texturename);
 		memory->LoadTexture(texmap, elem.second);
 		storedTexMaps[elem.first] = texmap; //store the tex map. (in case we want to unload it some day)

@@ -6,9 +6,11 @@
 
 class TextureLoader
 {
+	// texture name -> wtx
+	std::unordered_map < std::string, std::vector<uint8_t> > storedTextures;
+	// wtx -> in-game texmap
+	std::unordered_map < std::string, uint64_t > storedTexMaps;
 
-	std::unordered_map < int32_t, std::vector<uint8_t> > storedTextures;
-	std::unordered_map < int32_t, uint64_t > storedTexMaps;
 
 	void generateColorBunkerTexture(int32_t panelid);
 
