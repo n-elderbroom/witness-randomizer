@@ -43,6 +43,7 @@ class APRandomizer {
 		void GenerateHard();
 
 		void HighContrastMode();
+		void DisableColorCycle();
 
 		void SkipPuzzle();
 
@@ -50,7 +51,8 @@ class APRandomizer {
 
 		bool InfiniteChallenge(bool enable);
 
-		void Init();
+		void InitPanels();
+		void RestoreOriginals();
 
 	private:
 		std::map<int, int> panelIdToLocationId;
