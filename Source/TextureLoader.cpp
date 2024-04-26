@@ -2,6 +2,8 @@
 #include "Panel.h"
 #include <wtx_tools.h>
 #include "Memory.h"
+#include <iostream>
+#include <fstream>
 
 TextureLoader* TextureLoader::_singleton = nullptr;
 
@@ -47,6 +49,55 @@ void TextureLoader::generateColorBunkerTexture(int32_t panelid)
 	storedTextures[textureNames[panelid]] = wtxBuffer;
 }
 
+
+
+//Read a texture from disk, converting it and queueing it for load in-game
+//Mostly for easy testing of custom textures.
+//Format should be an enum, DXT1 or DXT5 depending on the texture you are replacing
+//most larger textures are DXT5. DXT5 also supports alpha.
+//The "bits" is used internally, but its unclear what exactly for
+//most diffuse / colorful textures set bits to 1
+//spec maps and other greyscale images flip bit with value 4
+//	...but also the desert panels have value 1? so the bits get set to 5 total.
+//textures with alpha might flip bit 2?
+//bit 8 seems to be cube maps / "probes" like reflection maps? they are structured differently
+//This function does *not* currently auto-load the relevent package. 
+void TextureLoader::readTextureFromDisk(std::string filename, std::string texturenameingame, TextureEncodeFormat format, uint8_t bits = 1) {
+	std::ifstream fileBuffer(filename, std::ios::ate | std::ios::binary);
+
+	if (fileBuffer.is_open()) {
+		std::streamsize length = fileBuffer.tellg();
+		fileBuffer.seekg(0, std::ios::beg);
+		char* buffer = new char[length];
+		fileBuffer.read(buffer, length);
+		ImgFileBuffer inputfile;
+		inputfile.data = buffer;
+		inputfile.len = length;
+
+		WtxFormat rustenumformat;
+		if (format == TextureEncodeFormat::DXT1) {
+			rustenumformat = WtxFormat::DXT1;
+		} else if (format == TextureEncodeFormat::DXT5) {
+			rustenumformat = WtxFormat::DXT5;
+		}
+			
+
+		TextureBuffer tex = image_to_wtx(inputfile, true, rustenumformat, bits);
+
+		// Rust will continue to hold some knowledge of that memory it allocated to return the `tex`
+		// so we should copy the data to a local variable, and tell rust that we are done and it can free that memory safely.
+		std::vector<uint8_t> wtxBuffer = std::vector<uint8_t>(tex.data, tex.data + tex.len);
+
+		//let rust free the memory it allocated
+		free_texbuf(tex);
+		storedTextures[texturenameingame] = wtxBuffer;
+	}
+	else {
+		1 + 1;
+	}
+}
+
+
 TextureLoader* TextureLoader::get()
 {
 	if (_singleton == nullptr) {
@@ -59,6 +110,14 @@ void TextureLoader::loadTextures()
 {
 	Memory* memory = Memory::get();
 	memory->LoadPackage("save_58472"); //tells game to load the color bunker assets into memory, so we can edit them
+	//memory->LoadPackage("save_58392"); // desert panels
+	//memory->LoadPackage("save_58473"); // desert panels
+	//memory->LoadPackage("save_58413"); // desert panels
+	//memory->LoadPackage("globals"); // one single desert panel is in "globals" its probably already always loaded?
+	//memory->LoadPackage("save_58421"); //this package has the town area spec panels
+
+	//readTextureFromDisk("./test.png", "obj_panels_color_tricolor_1", DXT5, 1);
+	
 
 	for (auto& elem : storedTextures) {
 		auto texturename = elem.first;

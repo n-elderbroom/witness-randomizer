@@ -4,6 +4,11 @@
 #include <unordered_map>
 #include "TextureLoader.h"
 
+enum TextureEncodeFormat {
+	DXT1,
+	DXT5
+};
+
 class TextureLoader
 {
 	// texture name -> wtx
@@ -23,6 +28,9 @@ public:
 	static TextureLoader* get();
 	void loadTextures();
 	void generateTexture(int32_t panelid);
+
+	void readTextureFromDisk(std::string filename, std::string texturenameingame, TextureEncodeFormat format, uint8_t bits);
+
 };
 
 inline std::unordered_map<int32_t, std::string> textureNames = {
