@@ -405,7 +405,13 @@ void Memory::findImportantFunctionAddresses(){
 				ReadAbsolute(reinterpret_cast<LPCVOID>(addressOfRelativePointer), &relativePointer, sizeof(int));
 
 				this->loadTextureMapFunction = addressOfRelativePointer + relativePointer + 4;
+				
+				//We can find the MemoryInputStream VFTable *in* this loadTextureMapFunction
+				//we need it elsewhere
+				int relativePointer2;
+				ReadAbsolute(reinterpret_cast<LPCVOID>(this->loadTextureMapFunction + 0x36), &relativePointer2, 4);
 
+				this->memoryInputStreamVFTable = relativePointer2 + this->loadTextureMapFunction + 0x33 + 0x7; // 33 is start of that instruction, its 7 bytes long
 				return true;
 			}
 		}
@@ -939,6 +945,16 @@ void Memory::findImportantFunctionAddresses(){
 
 		return true;
 	});
+
+
+	executeSigScan({ 0x48, 0x89, 0x5c, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x57 }, [this](__int64 offset, int index, const std::vector<byte>& data) {
+		this->loadMeshFunction = _baseAddress + offset + index;
+		return true;
+		});
+	executeSigScan({ 0x40, 0x53, 0x56, 0x57, 0x41, 0x56, 0x41, 0x57 }, [this](__int64 offset, int index, const std::vector<byte>& data) {
+		this->deserializeMeshAssetFunction = _baseAddress + offset + index;
+		return true;
+		});
 }
 
 void Memory::findActivePanel() {
@@ -1537,6 +1553,184 @@ void Memory::LoadPackage(std::string packagename) {
 	auto thread = CreateRemoteThread(_handle, NULL, 0, (LPTHREAD_START_ROUTINE)asm_alloc_start, NULL, 0, 0);
 
 	WaitForSingleObject(thread, INFINITE);
+}
 
 
+//temporary, only to read audio file from disk. remove once files get stored in binary.
+std::vector<uint8_t> Memory::readFileToVector(const std::string& filename) {
+	std::ifstream file(filename, std::ios::binary | std::ios::ate);
+	if (file.is_open()) {
+		// Get the size of the file
+		std::streamsize size = file.tellg();
+		file.seekg(0, std::ios::beg);
+
+		std::vector<uint8_t> data;
+		data.resize(size);
+
+		if (file.read(reinterpret_cast<char*>(data.data()), size)) {
+			return data;
+		}
+	}
+}
+
+uint64_t Memory::createInMemoryMeshAsset(std::vector<uint8_t> buffer) {
+	auto rawAssetBuffer = reinterpret_cast<uint64_t>(VirtualAllocEx(_handle, NULL, buffer.size(), MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
+	//then copy the texture there
+	WriteProcessMemory(_handle, (LPVOID)rawAssetBuffer, &buffer[0], buffer.size(), NULL);
+	auto rawAssetSize = buffer.size();
+
+	auto pointerToBuffer = reinterpret_cast<uint64_t>(VirtualAllocEx(_handle, NULL, 16, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
+	WriteProcessMemory(_handle, (LPVOID)pointerToBuffer, &rawAssetBuffer, 16, NULL);
+
+
+	//the function we are calling here takes a "MemoryInputStream" object.
+	//this object looks as follows
+	//8 byte pointer to a function table, I worry that this location likely varies by game version.
+	//		*hopefully* its not impossible to find? its likely a static offset from a nearby function, that kinda thing.
+	//8 byte bool. indicating endianness of the stream/data buffer
+	//two 8 byte pointers that both point to the buffer in question
+	//another 8 bytes, indicating the size of the buffer in question. Might really be an int32 then padding.
+
+	//we could probably build that object in a separate buffer and be load a pointer to it and stuff. but in game usually the object is on the stack
+	//so we may as well do the same.
+	
+
+	unsigned char asmBuff[] =
+		"\x6A\x00" //push 0 //push some padding for MemoryInputStream object on stack
+		"\x48\xB8\x00\x00\x00\x00\x00\x00\x00\x00" //load 16 bit address to rax //fill in this to be size of MeshAsset buffer
+		"\x50" //push rax
+		"\x48\xB8\x00\x00\x00\x00\x00\x00\x00\x00" //load 16 bit address to rax //fill in this to point to raw MeshAsset buffer
+		"\x50" //push rax	//MemoryInputstream holds two pointers. Push them here. One is start of buffer, one is 'current location in buffer'.
+		"\x50" //push rax
+		"\x68\x00\x00\x00\x00" //push 0x01000000 //bool indicates endianness? //last should be 01. Game always has this bool set, but our endianness is swapped i guess.
+		"\x48\xB8\x00\x00\x00\x00\x00\x00\x00\x00" //load 16 bit address to rax //fill in virtual function table for MemoryInputStream object.
+		"\x50" //push rax //finish constructing in-stack MemoryInputStream object
+		"\x6A\x00" //push 0
+		"\x48\xB8\x00\x00\x00\x00\x00\x00\x00\x00" //load 16 bit address to rax //fill in this with a "pointer to pointer to buffer"
+		"\x50" //push rax
+
+		"\x48\xBA\x00\x00\x00\x00\x00\x00\x00\x00" // mov rdx, [address] - address of resulting Mesh_Asset buffer. Should be 0x68 bytes long (104 bytes).
+		"\x41\xB8\xFF\xFF\xFF\xFF"                 // mov r8d, [const] - 0xFFFFFFFF not sure what for but i dont wanna touch it
+		"\x41\xB9\x01\x00\x00\x00"                 // mov r9d, [const] - 0x1 not sure what this is either
+
+		//"\x48\x8D\x4C\x24\x30"                     // lea rcx, [rsp+30] // lea not mov. place the "register+30" *address* into rcx. don't follow pointer in stack.
+		"\x48\x8D\x4C\x24\x10"                     // lea rcx, [rsp+0x10] // lea not mov. place the "register+30" *address* into rcx. don't follow pointer in stack.
+		"\x48\x83\xEC\x20"                         // sub rsp, 20 (align stack for call)
+
+		//"\x48\xB8\x30\x5d\x33\x40\x01\x00\x00\x00" // mov rbx, [address] - so we can call rax.
+		//"\xFF\xD0"                                 // call rbx //i think we really want a direct long, with rax set to same function pointer we have in rcx
+		"\x48\xBB\x30\x5d\x33\x40\x01\x00\x00\x00" // mov rbx, [address] - so we can call rax.
+		"\xFF\xD3"                                 // call rbx //i think we really want a direct long, with rax set to same function pointer we have in rcx
+		"\x48\x83\xC4\x60"                         // add rsp, 0x28
+		"\xC3";
+	auto result_buffer_address = reinterpret_cast<uint64_t>(VirtualAllocEx(_handle, NULL, 0x78, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
+
+
+	asmBuff[4] = rawAssetSize & 0xff;
+	asmBuff[5] = (rawAssetSize >> 8) & 0xff;
+	asmBuff[6] = (rawAssetSize >> 16) & 0xff;
+	asmBuff[7] = (rawAssetSize >> 24) & 0xff;
+	asmBuff[8] = (rawAssetSize >> 32) & 0xff;
+	asmBuff[9] = (rawAssetSize >> 40) & 0xff;
+	asmBuff[10] = (rawAssetSize >> 48) & 0xff;
+	asmBuff[11] = (rawAssetSize >> 56) & 0xff;
+
+	asmBuff[15] = rawAssetBuffer & 0xff;
+	asmBuff[16] = (rawAssetBuffer >> 8) & 0xff;
+	asmBuff[17] = (rawAssetBuffer >> 16) & 0xff;
+	asmBuff[18] = (rawAssetBuffer >> 24) & 0xff;
+	asmBuff[19] = (rawAssetBuffer >> 32) & 0xff;
+	asmBuff[20] = (rawAssetBuffer >> 40) & 0xff;
+	asmBuff[21] = (rawAssetBuffer >> 48) & 0xff;
+	asmBuff[22] = (rawAssetBuffer >> 56) & 0xff;
+
+	asmBuff[32] = this->memoryInputStreamVFTable & 0xff;
+	asmBuff[33] = (this->memoryInputStreamVFTable >> 8) & 0xff;
+	asmBuff[34] = (this->memoryInputStreamVFTable >> 16) & 0xff;
+	asmBuff[35] = (this->memoryInputStreamVFTable >> 24) & 0xff;
+	asmBuff[36] = (this->memoryInputStreamVFTable >> 32) & 0xff;
+	asmBuff[37] = (this->memoryInputStreamVFTable >> 40) & 0xff;
+	asmBuff[38] = (this->memoryInputStreamVFTable >> 48) & 0xff;
+	asmBuff[39] = (this->memoryInputStreamVFTable >> 56) & 0xff;
+
+	asmBuff[45] = pointerToBuffer & 0xff;
+	asmBuff[46] = (pointerToBuffer >> 8) & 0xff;
+	asmBuff[47] = (pointerToBuffer >> 16) & 0xff;
+	asmBuff[48] = (pointerToBuffer >> 24) & 0xff;
+	asmBuff[49] = (pointerToBuffer >> 32) & 0xff;
+	asmBuff[50] = (pointerToBuffer >> 40) & 0xff;
+	asmBuff[51] = (pointerToBuffer >> 48) & 0xff;
+	asmBuff[52] = (pointerToBuffer >> 56) & 0xff;
+
+	asmBuff[56] = result_buffer_address & 0xff;
+	asmBuff[57] = (result_buffer_address >> 8) & 0xff;
+	asmBuff[58] = (result_buffer_address >> 16) & 0xff;
+	asmBuff[59] = (result_buffer_address >> 24) & 0xff;
+	asmBuff[60] = (result_buffer_address >> 32) & 0xff;
+	asmBuff[61] = (result_buffer_address >> 40) & 0xff;
+	asmBuff[62] = (result_buffer_address >> 48) & 0xff;
+	asmBuff[63] = (result_buffer_address >> 56) & 0xff;
+
+	SIZE_T asm_allocation = sizeof(asmBuff);
+	auto asm_alloc_start = VirtualAllocEx(_handle, NULL, asm_allocation, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+	WriteProcessMemory(_handle, asm_alloc_start, asmBuff, asm_allocation, NULL);
+	auto thread = CreateRemoteThread(_handle, NULL, 0, (LPTHREAD_START_ROUTINE)asm_alloc_start, NULL, 0, 0);
+
+	WaitForSingleObject(thread, INFINITE);
+
+
+	return result_buffer_address;
+}
+
+void Memory::LoadMesh(uint64_t meshToReplacePointer, uint64_t meshAssetPointer) {
+	//first, alloc a place in the game's memory for our wtx texture
+	//auto wtxAlloc = reinterpret_cast<uint64_t>(VirtualAllocEx(_handle, NULL, wtxbuffer.size(), MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
+	//then copy the texture there
+	//WriteProcessMemory(_handle, (LPVOID)wtxAlloc, &wtxbuffer[0], wtxbuffer.size(), NULL);
+
+	unsigned char asmBuff[] =
+		"\x48\xB8\x00\x00\x00\x00\x00\x00\x00\x00" //mov rax [address] // load texture function
+		"\x48\xB9\x00\x00\x00\x00\x00\x00\x00\x00" //mov rcx [address] //address of texture map
+		"\x48\xBA\x00\x00\x00\x00\x00\x00\x00\x00" //mov rdx [address] //address of texture to load
+		"\x41\xB8\x00\x00\x00\x01" //mov r8d, [const] // size of the texture
+		"\x48\x83\xEC\x48"// sub rsp,48
+		"\xFF\xD0" //call rax
+		"\x48\x83\xC4\x48" // add rsp,48
+		"\xC3"; //ret
+	//uint32_t size_parameter = (uint32_t)wtxbuffer.size();
+	asmBuff[2] = loadMeshFunction & 0xff;
+	asmBuff[3] = (loadMeshFunction >> 8) & 0xff;
+	asmBuff[4] = (loadMeshFunction >> 16) & 0xff;
+	asmBuff[5] = (loadMeshFunction >> 24) & 0xff;
+	asmBuff[6] = (loadMeshFunction >> 32) & 0xff;
+	asmBuff[7] = (loadMeshFunction >> 40) & 0xff;
+	asmBuff[8] = (loadMeshFunction >> 48) & 0xff;
+	asmBuff[9] = (loadMeshFunction >> 56) & 0xff;
+	asmBuff[12] = meshToReplacePointer & 0xff;
+	asmBuff[13] = (meshToReplacePointer >> 8) & 0xff;
+	asmBuff[14] = (meshToReplacePointer >> 16) & 0xff;
+	asmBuff[15] = (meshToReplacePointer >> 24) & 0xff;
+	asmBuff[16] = (meshToReplacePointer >> 32) & 0xff;
+	asmBuff[17] = (meshToReplacePointer >> 40) & 0xff;
+	asmBuff[18] = (meshToReplacePointer >> 48) & 0xff;
+	asmBuff[19] = (meshToReplacePointer >> 56) & 0xff;
+	asmBuff[22] = meshAssetPointer & 0xff;
+	asmBuff[23] = (meshAssetPointer >> 8) & 0xff;
+	asmBuff[24] = (meshAssetPointer >> 16) & 0xff;
+	asmBuff[25] = (meshAssetPointer >> 24) & 0xff;
+	asmBuff[26] = (meshAssetPointer >> 32) & 0xff;
+	asmBuff[27] = (meshAssetPointer >> 40) & 0xff;
+	asmBuff[28] = (meshAssetPointer >> 48) & 0xff;
+	asmBuff[29] = (meshAssetPointer >> 56) & 0xff;
+	//asmBuff[32] = size_parameter & 0xff;
+	//asmBuff[33] = (size_parameter >> 8) & 0xff;
+	//asmBuff[34] = (size_parameter >> 16) & 0xff;
+	//asmBuff[35] = (size_parameter >> 24) & 0xff;
+
+	SIZE_T asm_allocation = sizeof(asmBuff);
+	auto asm_alloc_start = VirtualAllocEx(_handle, NULL, asm_allocation, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+	WriteProcessMemory(_handle, asm_alloc_start, asmBuff, asm_allocation, NULL);
+	auto thread = CreateRemoteThread(_handle, NULL, 0, (LPTHREAD_START_ROUTINE)asm_alloc_start, NULL, 0, 0);
+
+	WaitForSingleObject(thread, INFINITE);
 }

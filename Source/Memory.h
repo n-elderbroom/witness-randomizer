@@ -239,6 +239,12 @@ public:
 	void LoadTexture(uint64_t texturemappointer, std::vector<uint8_t> wtxbuffer);
 	void LoadPackage(std::string packagename);
 
+	std::vector<uint8_t> readFileToVector(const std::string& filename);
+	uint64_t createInMemoryMeshAsset(std::vector<uint8_t> buffer);
+	void LoadMesh(uint64_t meshToReplacePointer, uint64_t meshAssetPointer);
+
+
+
 	void StopDesertLaserPropagation();
 	void SetInfiniteChallenge(bool enable);
 
@@ -319,6 +325,10 @@ public:
 	uint64_t acquireByNameFunction;
 	uint64_t loadTextureMapFunction;
 	uint64_t loadPackageFunction;
+	uint64_t deserializeMeshAssetFunction;
+	uint64_t loadMeshFunction;
+	uint64_t memoryInputStreamVFTable;
+
 
 	std::vector<int> ACTIVEPANELOFFSETS;
 	int ACCELERATION;

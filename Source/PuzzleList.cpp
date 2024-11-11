@@ -5,9 +5,13 @@
 #include "PuzzleList.h"
 #include "Watchdog.h"
 #include "TextureLoader.h"
+#include "Memory.cpp"
 
 void PuzzleList::GenerateAllN()
 {
+
+
+
 	generator->setLoadingHandle(_handle);
 	generator->setLoadingData(336);
 	CopyTargets();
@@ -1025,7 +1029,28 @@ void PuzzleList::GenerateDesertN()
 	generate._panel->maxx = 0.9f;
 	generate.generate(0x0A15F);
 	specialCase->generateSpecularPuzzle(0x0A15F); //Tall
-	specialCase->generateSpecularPuzzle(0x17C31); //Glass
+	//memory->WritePanelData<int>(0x17C31, GRID_SIZE_X, { 4 }); 
+	//memory->WritePanelData<int>(0x17C31, GRID_SIZE_Y, { 4 });
+
+	//generate.resetConfig();
+	////generate.initPanel(0x0A15F);
+	//generate.setGridSize(4, 4);
+	//generate.setSymbol(Decoration::Start, 0, 0);
+	//generate.setSymbol(Decoration::Exit, 8, 8);
+	//generate.generate(0x17C31);
+	//auto mesh = memory->ReadPanelData<uint64_t>(0x09f7D, MESH);
+
+	memory->LoadPackage("save_58413"); //force load the desert glass panel so we can swap its mesh out.
+	auto oldmesh = memory->ReadPanelData<uint64_t>(0x17C31, MESH);
+	auto newmesh = memory->readFileToVector("./obj_panels_ruins_transparent_entire.dmesh");
+	//the "dmesh" file there is the same format and structure as whats on disk in data_pc.zip in .mesh files, but already decompressed for simplicity.
+	//usually, only the smaller files on disk are stored this way, but we are skipping that decompress step.
+	auto newmesh_asset = memory->createInMemoryMeshAsset(newmesh);
+	memory->LoadMesh(oldmesh, newmesh_asset);
+
+	specialCase->generateSpecularPuzzle(0x17C31, HEXAGON_GRID); //Glass
+	memory->WritePanelData<Color>(0x17C31, BACKGROUND_REGION_COLOR, { Color{0.3, 0.3, 0.3, 0.0} });
+	memory->WritePanelData<int>(0x17C31, NEEDS_REDRAW, { 1 });
 	specialCase->generateSpecularPuzzle(0x012D7); //Final
 	memory->WritePanelData<float>(0x012C8, OPEN_RATE, { 0.06f });  // Desert Final Far Control, 2x	
 	
