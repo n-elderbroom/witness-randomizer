@@ -237,7 +237,13 @@ public:
 
 	uint64_t GetTextureMapFromCatalog(std::string texturename);
 	void LoadTexture(uint64_t texturemappointer, std::vector<uint8_t> wtxbuffer);
+	void LoadSound(uint64_t texturemappointer, std::vector<uint8_t> soundbuffer);
+
 	void LoadPackage(std::string packagename);
+
+	std::vector<uint8_t> readFileToVector(const std::string& filename);
+
+	uint64_t getSoundData(std::string texturename);
 
 	void StopDesertLaserPropagation();
 	void SetInfiniteChallenge(bool enable);
@@ -316,8 +322,11 @@ public:
 	uint64_t windmillMaxTurnSpeed;
 	uint64_t windmillCurrentTurnSpeed;
 	uint64_t globalTextureCatalog;
+	uint64_t globalSoundDataCatalog;
 	uint64_t acquireByNameFunction;
+	uint64_t acquireByNameFunctionSound;
 	uint64_t loadTextureMapFunction;
+	uint64_t loadSoundDataFunction;
 	uint64_t loadPackageFunction;
 
 	std::vector<int> ACTIVEPANELOFFSETS;
@@ -353,6 +362,7 @@ public:
 	uint32_t scanForRelativeAddress(const std::vector<byte>& signatureBytes, uint32_t scanOffset = 0, uint32_t valueOffset = 0);
 
 	uint64_t getBaseAddress() const;
+
 
 private:
 

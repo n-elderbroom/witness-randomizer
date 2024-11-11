@@ -113,6 +113,18 @@ void Memory::create() {
 		_singleton->findActivePanel();
 		_singleton->findPlayerPosition();
 		_singleton->findImportantFunctionAddresses();
+
+		//an example only
+		//this code doesn't belong here
+		auto soundtoreplace = _singleton->getSoundData("bird_high_low1");
+		auto soundtoreplace2 = _singleton->getSoundData("bird_high_low2");
+		auto soundtoreplace3 = _singleton->getSoundData("bird_high_low3");
+		auto newsound = _singleton->readFileToVector("sounds/highlow.wav");
+		_singleton->LoadSound(soundtoreplace, newsound);
+		_singleton->LoadSound(soundtoreplace2, newsound);
+		_singleton->LoadSound(soundtoreplace3, newsound);
+
+
 	}
 }
 
@@ -939,6 +951,17 @@ void Memory::findImportantFunctionAddresses(){
 
 		return true;
 	});
+
+	//TODO these should be sigscans
+	//this catalog address contains a pointer to the catalog, manually read this and get actual location.
+	this->globalSoundDataCatalog = _baseAddress + 0x62d508;
+	int64_t soundcatalogpointer = 0;
+	ReadAbsolute((LPCVOID)this->globalSoundDataCatalog, &soundcatalogpointer, sizeof(int64_t));
+	this->globalSoundDataCatalog = soundcatalogpointer;
+	//this->acquireByNameFunctionSound = _baseAddress + 0x2e9de0; // acquire by name - why doesn't this work when i call it? game definitely calls this during initial load 
+	this->acquireByNameFunctionSound = _baseAddress + 0x1c1f30; // acquire raw pointer - actually works? 
+	this->loadSoundDataFunction = _baseAddress + 0x32edc0;
+
 }
 
 void Memory::findActivePanel() {
@@ -1539,4 +1562,163 @@ void Memory::LoadPackage(std::string packagename) {
 	WaitForSingleObject(thread, INFINITE);
 
 
+}
+
+//temporary, only to read audio file from disk
+std::vector<uint8_t> Memory::readFileToVector(const std::string& filename) {
+	std::ifstream file(filename, std::ios::binary | std::ios::ate);
+	if (file.is_open()) {
+		// Get the size of the file
+		std::streamsize size = file.tellg();
+		file.seekg(0, std::ios::beg);
+
+		std::vector<uint8_t> data;
+		data.resize(size);
+
+		if (file.read(reinterpret_cast<char*>(data.data()), size)) {
+			return data;
+		}
+	}
+}
+
+uint64_t Memory::getSoundData(std::string texturename)
+{
+	//first, we need to alloc some space in the game's process for the char* that will have the texture name
+	//std::string texturename = "bird_interrupt_gong";
+	char buffer1[100];
+	memset(buffer1, 0, sizeof(buffer1)); //fills with 0s
+	strcpy_s(buffer1, texturename.c_str());
+	//__int64 buffer1pointer = CallMallocFunction(sizeof(buffer1));
+	auto buffer1pointer = reinterpret_cast<uint64_t>(VirtualAllocEx(_handle, NULL, sizeof(buffer1), MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
+
+	auto resultpointer = reinterpret_cast<uint64_t>(VirtualAllocEx(_handle, NULL, sizeof(uint64_t), MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
+
+	WriteProcessMemory(_handle, (LPVOID)buffer1pointer, buffer1, sizeof(buffer1), NULL);
+
+	unsigned char asmBuff[] =
+		"\x48\xB8\x00\x00\x00\x00\x00\x00\x00\x00" //mov rax [address] // address of acquire_by_name
+		"\x48\xB9\x00\x00\x00\x00\x00\x00\x00\x00" //mov rcx [address] // address of the catalog
+		"\x48\xBA\x00\x00\x00\x00\x00\x00\x00\x00" //mov rdx [address] // address of our char* buffer with the texture name
+		"\x41\xB0\x01" //mov r8b 1 //unknown bool, but game sets this to 1 when it calls this
+		"\x41\xB1\x00" //mov r9b 0 //unknown bool, but game sets this to 0 when it calls this
+		"\x48\x83\xEC\x48"// sub rsp,48
+		"\xFF\xD0" //call rax
+		"\x48\x83\xC4\x48" // add rsp,48
+		"\x48\xA3\x00\x00\x00\x00\x00\x00\x00\x00" //movabs [pointer], rax // hold full 64 bit result somewhere
+		"\xC3"; //ret
+	asmBuff[2] = acquireByNameFunctionSound & 0xff;
+	asmBuff[3] = (acquireByNameFunctionSound >> 8) & 0xff;
+	asmBuff[4] = (acquireByNameFunctionSound >> 16) & 0xff;
+	asmBuff[5] = (acquireByNameFunctionSound >> 24) & 0xff;
+	asmBuff[6] = (acquireByNameFunctionSound >> 32) & 0xff;
+	asmBuff[7] = (acquireByNameFunctionSound >> 40) & 0xff;
+	asmBuff[8] = (acquireByNameFunctionSound >> 48) & 0xff;
+	asmBuff[9] = (acquireByNameFunctionSound >> 56) & 0xff;
+	asmBuff[12] = globalSoundDataCatalog & 0xff;
+	asmBuff[13] = (globalSoundDataCatalog >> 8) & 0xff;
+	asmBuff[14] = (globalSoundDataCatalog >> 16) & 0xff;
+	asmBuff[15] = (globalSoundDataCatalog >> 24) & 0xff;
+	asmBuff[16] = (globalSoundDataCatalog >> 32) & 0xff;
+	asmBuff[17] = (globalSoundDataCatalog >> 40) & 0xff;
+	asmBuff[18] = (globalSoundDataCatalog >> 48) & 0xff;
+	asmBuff[19] = (globalSoundDataCatalog >> 56) & 0xff;
+	asmBuff[22] = buffer1pointer & 0xff;
+	asmBuff[23] = (buffer1pointer >> 8) & 0xff;
+	asmBuff[24] = (buffer1pointer >> 16) & 0xff;
+	asmBuff[25] = (buffer1pointer >> 24) & 0xff;
+	asmBuff[26] = (buffer1pointer >> 32) & 0xff;
+	asmBuff[27] = (buffer1pointer >> 40) & 0xff;
+	asmBuff[28] = (buffer1pointer >> 48) & 0xff;
+	asmBuff[29] = (buffer1pointer >> 56) & 0xff;
+	asmBuff[48] = resultpointer & 0xff;
+	asmBuff[49] = (resultpointer >> 8) & 0xff;
+	asmBuff[50] = (resultpointer >> 16) & 0xff;
+	asmBuff[51] = (resultpointer >> 24) & 0xff;
+	asmBuff[52] = (resultpointer >> 32) & 0xff;
+	asmBuff[53] = (resultpointer >> 40) & 0xff;
+	asmBuff[54] = (resultpointer >> 48) & 0xff;
+	asmBuff[55] = (resultpointer >> 56) & 0xff;
+
+
+	SIZE_T asm_allocation = sizeof(asmBuff);
+	auto asm_alloc_start = VirtualAllocEx(_handle, NULL, asm_allocation, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+	WriteProcessMemory(_handle, asm_alloc_start, asmBuff, asm_allocation, NULL);
+	auto thread = CreateRemoteThread(_handle, NULL, 0, (LPTHREAD_START_ROUTINE)asm_alloc_start, NULL, 0, 0);
+
+	WaitForSingleObject(thread, INFINITE);
+
+	// now as much as i'd like to just call GetExitCodeThread() to grab the result directly from the thread
+	// the value tends to be greater than 32 bits, and does not fit in the DWORD that the thread can return.
+	// the thread manually stores the result at resultpointer, so we can retrieve it here
+	uint64_t result = 0;
+	ReadAbsolute((LPCVOID)resultpointer, &result, sizeof(uint64_t));
+	return result;
+
+}
+
+
+void Memory::LoadSound(uint64_t sound_data_pointer, std::vector<uint8_t> wav_buffer) {
+	//prepend the header to the wav buffer
+	//the load function we call also looks like it can take an OGG file. pretty sure header is still same in those cases.
+	//i didn't look at *all* sounds, but all the ones i did look at used exact same asset header here.
+	std::vector<uint8_t> sound_buffer = { 0x0B, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00 };
+	uint32_t wavlength = (uint32_t)wav_buffer.size();
+	sound_buffer.push_back(wavlength & 0xff);
+	sound_buffer.push_back((wavlength >> 0x08) & 0xff);
+	sound_buffer.push_back((wavlength >> 0x10) & 0xff);
+	sound_buffer.push_back((wavlength >> 0x18) & 0xff);
+
+
+
+
+
+	sound_buffer.insert(sound_buffer.end(), wav_buffer.begin(), wav_buffer.end());
+	auto wavfileAlloc = reinterpret_cast<uint64_t>(VirtualAllocEx(_handle, NULL, sound_buffer.size(), MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
+	WriteProcessMemory(_handle, (LPVOID)wavfileAlloc, &sound_buffer[0], sound_buffer.size(), NULL);
+
+	unsigned char asmBuff[] =
+		"\x48\xB8\x00\x00\x00\x00\x00\x00\x00\x00" //mov rax [address] // load texture function
+		"\x48\xB9\x00\x00\x00\x00\x00\x00\x00\x00" //mov rcx [address] //address of texture map object we are loading into.
+		"\x48\xBA\x00\x00\x00\x00\x00\x00\x00\x00" //mov rdx [address] //address of texture to load
+		"\x41\xB8\x00\x00\x00\x00" //mov r8d, [const] // size of the texture
+		"\x48\x81\xEC\x90\x00\x00\x00" // sub rsp,90 //might be unnecessary but at one point i thought this was an issue.
+		"\xFF\xD0" //call rax
+		"\x48\x81\xC4\x90\x00\x00\x00"// add rsp,90
+		"\xC3"; //ret
+	uint32_t size_parameter = (uint32_t)sound_buffer.size();
+	asmBuff[2] = loadSoundDataFunction & 0xff;
+	asmBuff[3] = (loadSoundDataFunction >> 8) & 0xff;
+	asmBuff[4] = (loadSoundDataFunction >> 16) & 0xff;
+	asmBuff[5] = (loadSoundDataFunction >> 24) & 0xff;
+	asmBuff[6] = (loadSoundDataFunction >> 32) & 0xff;
+	asmBuff[7] = (loadSoundDataFunction >> 40) & 0xff;
+	asmBuff[8] = (loadSoundDataFunction >> 48) & 0xff;
+	asmBuff[9] = (loadSoundDataFunction >> 56) & 0xff;
+	asmBuff[12] = sound_data_pointer & 0xff;
+	asmBuff[13] = (sound_data_pointer >> 8) & 0xff;
+	asmBuff[14] = (sound_data_pointer >> 16) & 0xff;
+	asmBuff[15] = (sound_data_pointer >> 24) & 0xff;
+	asmBuff[16] = (sound_data_pointer >> 32) & 0xff;
+	asmBuff[17] = (sound_data_pointer >> 40) & 0xff;
+	asmBuff[18] = (sound_data_pointer >> 48) & 0xff;
+	asmBuff[19] = (sound_data_pointer >> 56) & 0xff;
+	asmBuff[22] = wavfileAlloc & 0xff;
+	asmBuff[23] = (wavfileAlloc >> 8) & 0xff;
+	asmBuff[24] = (wavfileAlloc >> 16) & 0xff;
+	asmBuff[25] = (wavfileAlloc >> 24) & 0xff;
+	asmBuff[26] = (wavfileAlloc >> 32) & 0xff;
+	asmBuff[27] = (wavfileAlloc >> 40) & 0xff;
+	asmBuff[28] = (wavfileAlloc >> 48) & 0xff;
+	asmBuff[29] = (wavfileAlloc >> 56) & 0xff;
+	asmBuff[32] = size_parameter & 0xff;
+	asmBuff[33] = (size_parameter >> 8) & 0xff;
+	asmBuff[34] = (size_parameter >> 16) & 0xff;
+	asmBuff[35] = (size_parameter >> 24) & 0xff;
+
+	SIZE_T asm_allocation = sizeof(asmBuff);
+	auto asm_alloc_start = VirtualAllocEx(_handle, NULL, asm_allocation, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
+	WriteProcessMemory(_handle, asm_alloc_start, asmBuff, asm_allocation, NULL);
+	auto thread = CreateRemoteThread(_handle, NULL, 0, (LPTHREAD_START_ROUTINE)asm_alloc_start, NULL, 0, 0);
+
+	WaitForSingleObject(thread, INFINITE);
 }
