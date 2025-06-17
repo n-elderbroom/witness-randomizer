@@ -947,11 +947,15 @@ void Memory::findImportantFunctionAddresses(){
 	});
 
 
-	executeSigScan({ 0x48, 0x89, 0x5c, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x57 }, [this](__int64 offset, int index, const std::vector<byte>& data) {
-		this->loadMeshFunction = _baseAddress + offset + index;
-		return true;
+	executeSigScan({ 0x48, 0x89, 0x5c, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x57, 0x48, 0x83, 0xec, 0x40, 0x41 }, [this](__int64 offset, int index, const std::vector<byte>& data) {
+		//if(data[index + 15] == 0x41){
+			this->loadMeshFunction = _baseAddress + offset + index;
+			return true;
+		//} else {
+			//return false;
+		//}
 		});
-	executeSigScan({ 0x40, 0x53, 0x56, 0x57, 0x41, 0x56, 0x41, 0x57 }, [this](__int64 offset, int index, const std::vector<byte>& data) {
+	executeSigScan({ 0x40, 0x53, 0x56, 0x57, 0x41, 0x56, 0x41, 0x57, 0x48, 0x83, 0xec, 0x20, 0x4c, 0x8b, 0xf2 }, [this](__int64 offset, int index, const std::vector<byte>& data) {
 		this->deserializeMeshAssetFunction = _baseAddress + offset + index;
 		return true;
 		});
@@ -1619,7 +1623,7 @@ uint64_t Memory::createInMemoryMeshAsset(std::vector<uint8_t> buffer) {
 
 		//"\x48\xB8\x30\x5d\x33\x40\x01\x00\x00\x00" // mov rbx, [address] - so we can call rax.
 		//"\xFF\xD0"                                 // call rbx //i think we really want a direct long, with rax set to same function pointer we have in rcx
-		"\x48\xBB\x30\x5d\x33\x40\x01\x00\x00\x00" // mov rbx, [address] - so we can call rax.
+		"\x48\xBB\x00\x00\x00\x00\x00\x00\x00\x00" // mov rbx, [address] - so we can call rax.
 		"\xFF\xD3"                                 // call rbx //i think we really want a direct long, with rax set to same function pointer we have in rcx
 		"\x48\x83\xC4\x60"                         // add rsp, 0x28
 		"\xC3";
@@ -1670,6 +1674,15 @@ uint64_t Memory::createInMemoryMeshAsset(std::vector<uint8_t> buffer) {
 	asmBuff[61] = (result_buffer_address >> 40) & 0xff;
 	asmBuff[62] = (result_buffer_address >> 48) & 0xff;
 	asmBuff[63] = (result_buffer_address >> 56) & 0xff;
+
+	asmBuff[87] = this->deserializeMeshAssetFunction & 0xff;
+	asmBuff[88] = (this->deserializeMeshAssetFunction >> 8) & 0xff;
+	asmBuff[89] = (this->deserializeMeshAssetFunction >> 16) & 0xff;
+	asmBuff[90] = (this->deserializeMeshAssetFunction >> 24) & 0xff;
+	asmBuff[91] = (this->deserializeMeshAssetFunction >> 32) & 0xff;
+	asmBuff[92] = (this->deserializeMeshAssetFunction >> 40) & 0xff;
+	asmBuff[93] = (this->deserializeMeshAssetFunction >> 48) & 0xff;
+	asmBuff[94] = (this->deserializeMeshAssetFunction >> 56) & 0xff;
 
 	SIZE_T asm_allocation = sizeof(asmBuff);
 	auto asm_alloc_start = VirtualAllocEx(_handle, NULL, asm_allocation, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
