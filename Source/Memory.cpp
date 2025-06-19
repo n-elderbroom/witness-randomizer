@@ -1589,8 +1589,7 @@ uint64_t Memory::createInMemoryMeshAsset(std::vector<uint8_t> buffer) {
 
 	//the function we are calling here takes a "MemoryInputStream" object.
 	//this object looks as follows
-	//8 byte pointer to a function table, I worry that this location likely varies by game version.
-	//		*hopefully* its not impossible to find? its likely a static offset from a nearby function, that kinda thing.
+	//8 byte pointer to a function table
 	//8 byte bool. indicating endianness of the stream/data buffer
 	//two 8 byte pointers that both point to the buffer in question
 	//another 8 bytes, indicating the size of the buffer in question. Might really be an int32 then padding.
@@ -1696,11 +1695,6 @@ uint64_t Memory::createInMemoryMeshAsset(std::vector<uint8_t> buffer) {
 }
 
 void Memory::LoadMesh(uint64_t meshToReplacePointer, uint64_t meshAssetPointer) {
-	//first, alloc a place in the game's memory for our wtx texture
-	//auto wtxAlloc = reinterpret_cast<uint64_t>(VirtualAllocEx(_handle, NULL, wtxbuffer.size(), MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
-	//then copy the texture there
-	//WriteProcessMemory(_handle, (LPVOID)wtxAlloc, &wtxbuffer[0], wtxbuffer.size(), NULL);
-
 	unsigned char asmBuff[] =
 		"\x48\xB8\x00\x00\x00\x00\x00\x00\x00\x00" //mov rax [address] // load texture function
 		"\x48\xB9\x00\x00\x00\x00\x00\x00\x00\x00" //mov rcx [address] //address of texture map
@@ -1735,10 +1729,6 @@ void Memory::LoadMesh(uint64_t meshToReplacePointer, uint64_t meshAssetPointer) 
 	asmBuff[27] = (meshAssetPointer >> 40) & 0xff;
 	asmBuff[28] = (meshAssetPointer >> 48) & 0xff;
 	asmBuff[29] = (meshAssetPointer >> 56) & 0xff;
-	//asmBuff[32] = size_parameter & 0xff;
-	//asmBuff[33] = (size_parameter >> 8) & 0xff;
-	//asmBuff[34] = (size_parameter >> 16) & 0xff;
-	//asmBuff[35] = (size_parameter >> 24) & 0xff;
 
 	SIZE_T asm_allocation = sizeof(asmBuff);
 	auto asm_alloc_start = VirtualAllocEx(_handle, NULL, asm_allocation, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE);
