@@ -113,18 +113,6 @@ void Memory::create() {
 		_singleton->findActivePanel();
 		_singleton->findPlayerPosition();
 		_singleton->findImportantFunctionAddresses();
-
-		//an example only
-		//this code doesn't belong here
-		auto soundtoreplace = _singleton->getSoundData("bird_high_low1");
-		auto soundtoreplace2 = _singleton->getSoundData("bird_high_low2");
-		auto soundtoreplace3 = _singleton->getSoundData("bird_high_low3");
-		auto newsound = _singleton->readFileToVector("sounds/highlow.wav");
-		_singleton->LoadSound(soundtoreplace, newsound);
-		_singleton->LoadSound(soundtoreplace2, newsound);
-		_singleton->LoadSound(soundtoreplace3, newsound);
-
-
 	}
 }
 

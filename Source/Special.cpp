@@ -8,6 +8,7 @@
 #include "Utilities.h"
 #include "TextureLoader.h"
 #include "ASMPayloadManager.h"
+#include "Sounds.h"
 
 void Special::generateSpecialSymMaze(std::shared_ptr<Generate> gen, int id) {
 	do {
@@ -2034,4 +2035,539 @@ void Special::test() {
 	memory->LoadPackage("save_58413");
 	memory->LoadPackage("save_58440");
 	memory->LoadPackage("globals");
+}
+
+// This code was mostly proof-of-concept. It ended up being long and likely more complex than necessary. Sorry.
+// When i wrote it, I was intent on having support for more than 3 pitches, which complicates the code considerably.
+// Most of the complexity is also just due to 
+// - the bevels. Which only get drawn on first/last notes and highest/lowest pitches. giving 9 different cases to deal with.
+// - having to keep track of all the indicies so that we can list out which points are part of the solution.
+// In retrospect, it would have been easier to just have different functions for 2 or 3 pitches, and not handle any other cases.
+// There's also a bit of logic at the start for randomly picking which notes out of a set of 5 possible notes. Its easier to just only ever use 3 pitches.
+// I suspect theres also a more elegant way to do the bevels, or how to draw the solution path. But i couldnt think of a good way. -Nathan
+// 
+//Also note, when calling this, total note count must be greater or equal to pitch count.
+//ex: if you had 3 pitches but only 2 notes, user would have to guess which 2 of 3 options on the panel actually get used.
+//code likely fails if that condition is not met.
+void Special::generateSoundWavePuzzle(int id, Instrument instrument, int pitch_count, int short_note_count, int long_note_count) {
+	//auto p = Panel(id);
+	auto memory = Memory::get();
+	int seqLen = memory->ReadPanelData<int>(id, SEQUENCE_LEN);
+	std::vector<int> seq = memory->ReadArray<int>(id, SEQUENCE, seqLen);
+
+
+	int numIntersections = memory->ReadPanelData<int>(id, NUM_DOTS);
+	std::vector<float> intersections = memory->ReadArray<float>(id, DOT_POSITIONS, numIntersections * 2);
+	float linewidth = memory->ReadPanelData<float>(id, PATH_WIDTH_SCALE);
+
+	//Memory::get()->ReadPanelData(id, )
+	//idk man
+	//begin by generating the weird custom grid
+	auto puzzle_width = short_note_count + 2 * long_note_count;
+	float line_width_scale = 0.0;
+	float bevel_distance = 0.0; // distance to offset from an otherwise easy-to-draw grid
+	float edge_margin_vertical = 0.0; // margin from top to first horizontal line
+	float edge_margin_horizontal = 0.0; // margin from left edge to first vertical line
+	float start_end_margin = 0.0; //margin from left edge of puzzle to puzzle start vert.
+
+	switch (puzzle_width)
+	{
+	case 2:
+		line_width_scale = 1;
+		bevel_distance = 0.05;
+		edge_margin_vertical = 0.1785;
+		edge_margin_horizontal = 0.2275;
+		start_end_margin = 0.12;
+		break;
+	case 3: // doesn't exist in game. Just use scale for 4 i guess? or maybe come up with custom numbers later.
+	case 4:
+		line_width_scale = 0.6;
+		bevel_distance = 0.0294;
+		edge_margin_vertical = 0.3;
+		edge_margin_horizontal = 0.1565;
+		start_end_margin = .092;
+		break;
+	case 5:
+	default: //just in case someone tries to make custom sizes
+		line_width_scale = 0.6;
+		bevel_distance = 0.0294;
+		edge_margin_vertical = 0.333;
+		edge_margin_horizontal = 0.1565;
+		start_end_margin = .092;
+		break;
+	}
+	float horizontal_stride = (1.0 - 2.0 * (edge_margin_horizontal)) / puzzle_width;
+	float vertical_stride = (1.0 - 2.0 * (edge_margin_vertical)) / (pitch_count - 1);
+
+
+	// before we can actually draw the grid, must randomize and figure out where any long notes are.
+	// we should also decide on solution at this stage.
+	// so that while we build the grid, we can write solution into it too.
+	// in-game solution is stored as a "sequence" on these puzzles. where its just a list of intersections.
+	// 
+	// vanilla game actually *has* a function that generates grids in this unusual pattern. "make_bird_pulses". Hypothetically we *could* call it ourselves to make panels of arbitrary sizes
+	// however, the game also just hardcodes the vanilla "sequence" solutions. Forcing our own solutions onto the vanilla grid sounds difficult.
+	// because we would need to know the index of all points to define a custom solution. And while we *could* figure out the order the game draws them, we get more control doing it ourselves from scratch anyway.
+	// for instance, the vanilla code can only handle one long-note sound on a panel. And only two or three pitches.
+
+
+	std::vector<bool> is_long_unshuffled;
+	std::vector<bool> is_long_shuffled;
+	for (auto i = 0; i < short_note_count; i++) {
+		is_long_unshuffled.push_back(false);
+	}
+	for (auto i = 0; i < long_note_count; i++) {
+		is_long_unshuffled.push_back(true);
+	}
+	while (is_long_unshuffled.size() > 0) {
+		is_long_shuffled.push_back(pop_random(is_long_unshuffled));
+	}
+
+	//pick solution
+	//first, decide what notes to use, out of the various pitches. notes we are using go here in chosen_notes
+	std::vector<Note_Value> chosen_notes;
+	std::vector<Note_Value> all_possible_notes = std::vector<Note_Value>({ Note_Value::VeryHigh,Note_Value::High, Note_Value::Mid, Note_Value::Low, Note_Value::VeryLow });
+	for (auto i = 0; i < pitch_count; i++) {
+		chosen_notes.push_back(pop_random(all_possible_notes));
+	}
+	//then pick notes
+	std::vector<Note> solution; //solution, as notes
+	std::vector<int> solution_index; //solution, as pitches. i.e. 0 is bottom, 1 is up one pitch. need to know where on grid is right.
+	std::vector<Note_Value> solution_unshuffled;
+	for (auto note : chosen_notes) { //start by adding one of each note into the solution. Each note must be part of solution so user can distinguish all pitches
+		solution_unshuffled.push_back(note);
+	}
+	//then add other notes at random until we meet the desired length.
+	while (solution_unshuffled.size() < (short_note_count + long_note_count)) {
+		solution_unshuffled.push_back(pick_random(chosen_notes));
+	}
+
+	for (bool note : is_long_shuffled) {
+		solution.push_back(Note{ instrument, pop_random(solution_unshuffled), note });
+	}
+	//this sort, make-a-map, loop again is messy. Couldnt think of a better way.
+	//I needed to somehow map the randomly-chosen notes to what their result would be on the grid.
+	std::sort(chosen_notes.begin(), chosen_notes.end());
+	std::map<Note_Value, int> note_position_map = {};
+	for (int i = 0; i < chosen_notes.size(); i++) {
+		note_position_map.insert({ chosen_notes[i], i });
+	}
+	for (Note n : solution) {
+		solution_index.push_back(note_position_map[n.note]);
+	}
+
+
+	//draw grid.
+	std::vector<float> positions;
+	std::vector<int> connectionsA;
+	std::vector<int> connectionsB;
+	std::vector<int> flags;
+	std::vector<int> solution_sequence;
+
+	positions.push_back(start_end_margin);
+	positions.push_back(0.5);
+	flags.push_back(IntersectionFlags::STARTPOINT);
+	solution_sequence.push_back(0);
+	positions.push_back(edge_margin_horizontal - (pitch_count % 2 == 0 ? 0 : bevel_distance)); //if odd, move slightly to left. So nodes don't overlap.
+	positions.push_back(0.5);
+	flags.push_back(IntersectionFlags::INTERSECTION);
+	solution_sequence.push_back(1);
+	connectionsA.push_back(0);
+	connectionsB.push_back(1);
+
+	//this ugly variable stores all the indecies so we can rebuild solution path at the end easily
+	//finding solution on-the-fly as we draw the grid is annoyingly complex, as even if we draw the grid left-to-right, top-to-bottom, path could go bottom to top
+	//and i *assume* the solution we build does actually need to be in draw-order.
+	//maybe that assumption is wrong but this way, while verbose, is also easier to wrap my head around
+	//its nested a bit deep, but its solution_index_tracker[nth note][pitch index] then gives a vector that lists out the index of every intersection we pass through for that note+index
+	//this allows us to easily rebuild the path at the end, as we would just loop over the `solution_index` variable above. 
+	//note that if line goes straight across, some verticies get counted twice, but thats easy to detect
+	//and similarly, when we move more than one pitch in a single step, you must grab end point from in-between pitches on way up. 
+	// oh, and the awful constructor here is just to initialize all of this ahead of time for easy insertion later.
+	std::vector<std::vector<std::vector<int>>> solution_index_tracker(puzzle_width + 1, std::vector<std::vector<int>>(pitch_count, std::vector<int>()));
+
+	//these "dangling" variables are anything left without a connection
+	//as we write a column, store any unattached things in a variable
+	//then reference it from these variables as we write next column etc.
+	std::vector<int> dangling_horizontal_lines(pitch_count);
+	int dangling_vertex_vertical;
+	std::vector<int> dangling_starts(pitch_count);
+	std::vector<int> dangling_ends(pitch_count);
+	int current_index = 2;
+	int current_note_index = 0;
+	bool handled_long_note = false;
+	//loop puzzle_width times. draw that many intersections going left->right
+	//dont draw vertical lines where there is a long note, but still draw the bevel for it.
+	for (auto i = 0; i <= puzzle_width; i++) {
+		//then loop pitch_count times. draw that many intersections going top->down
+		for (auto j = 0; j < pitch_count; j++) {
+			float current_position_x = edge_margin_horizontal + (horizontal_stride * i);
+			float current_position_y = edge_margin_vertical + (vertical_stride * j);
+			if (j == 0) {
+				//top edge
+				if (i == 0) {
+					//left edge
+					positions.push_back(current_position_x);
+					positions.push_back(current_position_y + bevel_distance);
+					flags.push_back(IntersectionFlags::INTERSECTION);
+					//solution_index_tracker[i][j].push_back(current_index);
+					dangling_starts[j] = current_index;
+					solution_index_tracker[current_note_index][j].push_back(current_index);
+					current_index += 1;
+					positions.push_back(current_position_x + bevel_distance);
+					positions.push_back(current_position_y);
+					flags.push_back(IntersectionFlags::INTERSECTION);
+					connectionsA.push_back(current_index - 1);
+					connectionsB.push_back(current_index);
+					dangling_horizontal_lines[j] = current_index;
+					solution_index_tracker[current_note_index][j].push_back(current_index);
+					current_index += 1;
+				}
+				else if (i == puzzle_width) {
+					//right edge
+					//bevel left
+					positions.push_back(current_position_x - bevel_distance);
+					positions.push_back(current_position_y);
+					flags.push_back(IntersectionFlags::INTERSECTION);
+					solution_index_tracker[current_note_index][j].push_back(current_index);
+					connectionsA.push_back(dangling_horizontal_lines[j]);
+					connectionsB.push_back(current_index);
+					current_index += 1;
+					positions.push_back(current_position_x);
+					positions.push_back(current_position_y + bevel_distance);
+					flags.push_back(IntersectionFlags::INTERSECTION);
+					connectionsA.push_back(current_index - 1);
+					connectionsB.push_back(current_index);
+					dangling_vertex_vertical = current_index;
+					solution_index_tracker[current_note_index][j].push_back(current_index);
+					dangling_ends[j] = current_index;
+					current_index += 1;
+				}
+				else {
+					//middle note, top, bevel both ways
+					positions.push_back(current_position_x - bevel_distance);
+					positions.push_back(current_position_y);
+					flags.push_back(IntersectionFlags::INTERSECTION);
+					solution_index_tracker[current_note_index][j].push_back(current_index);
+					connectionsA.push_back(dangling_horizontal_lines[j]);
+					connectionsB.push_back(current_index);
+					current_index += 1;
+					positions.push_back(current_position_x);
+					positions.push_back(current_position_y + bevel_distance);
+					flags.push_back(IntersectionFlags::INTERSECTION);
+					connectionsA.push_back(current_index - 1);
+					connectionsB.push_back(current_index);
+					dangling_vertex_vertical = current_index;
+					solution_index_tracker[current_note_index][j].push_back(current_index);
+					if (!(solution[current_note_index].is_long) || handled_long_note) {//if short, *or* if its a long note, but we've already skipped a bar for it.
+						solution_index_tracker[current_note_index + 1][j].push_back(current_index);
+					}
+					/*else {
+						solution_index_tracker[current_note_index][j].push_back(current_index);
+					}*/
+					current_index += 1;
+					positions.push_back(current_position_x + bevel_distance);
+					positions.push_back(current_position_y);
+					flags.push_back(IntersectionFlags::INTERSECTION);
+					connectionsA.push_back(current_index - 1);
+					connectionsB.push_back(current_index);
+					dangling_horizontal_lines[j] = current_index;
+					if (!(solution[current_note_index].is_long) || handled_long_note) {//if short, *or* if its a long note, but we've already skipped a bar for it.
+						solution_index_tracker[current_note_index + 1][j].push_back(current_index);
+					}
+					else {
+						solution_index_tracker[current_note_index][j].push_back(current_index);
+					}
+					current_index += 1;
+				}
+			}
+			else if (j + 1 == pitch_count) {
+				//bottom edge
+				if (i == 0) {
+					//left edge
+					positions.push_back(current_position_x);
+					positions.push_back(current_position_y - bevel_distance);
+					flags.push_back(IntersectionFlags::INTERSECTION);
+					solution_index_tracker[current_note_index][j].push_back(current_index);
+					dangling_starts[j] = current_index;
+					current_index += 1;
+					positions.push_back(current_position_x + bevel_distance);
+					positions.push_back(current_position_y);
+					flags.push_back(IntersectionFlags::INTERSECTION);
+					connectionsA.push_back(current_index - 1);
+					connectionsB.push_back(current_index);
+					dangling_horizontal_lines[j] = current_index;
+					solution_index_tracker[current_note_index][j].push_back(current_index);
+					current_index += 1;
+				}
+				else if (i == puzzle_width) {
+					//right edge
+					//bevel left.
+					positions.push_back(current_position_x - bevel_distance);
+					positions.push_back(current_position_y);
+					flags.push_back(IntersectionFlags::INTERSECTION);
+					solution_index_tracker[current_note_index][j].push_back(current_index);
+					connectionsA.push_back(dangling_horizontal_lines[j]);
+					connectionsB.push_back(current_index);
+					current_index += 1;
+					positions.push_back(current_position_x);
+					positions.push_back(current_position_y - bevel_distance);
+					flags.push_back(IntersectionFlags::INTERSECTION);
+					connectionsA.push_back(current_index - 1);
+					connectionsB.push_back(current_index);
+					solution_index_tracker[current_note_index][j].push_back(current_index);
+					dangling_ends[j] = current_index;
+					current_index += 1;
+				}
+				else {
+					//middle note, bottom, bevel both ways
+					positions.push_back(current_position_x - bevel_distance);
+					positions.push_back(current_position_y);
+					flags.push_back(IntersectionFlags::INTERSECTION);
+					solution_index_tracker[current_note_index][j].push_back(current_index);
+					connectionsA.push_back(dangling_horizontal_lines[j]);
+					connectionsB.push_back(current_index);
+					current_index += 1;
+					positions.push_back(current_position_x);
+					positions.push_back(current_position_y - bevel_distance);
+					flags.push_back(IntersectionFlags::INTERSECTION);
+					connectionsA.push_back(current_index - 1);
+					connectionsB.push_back(current_index);
+					//dangling_vertex_vertical = current_index;					
+					solution_index_tracker[current_note_index][j].push_back(current_index);
+					if (!(solution[current_note_index].is_long) || handled_long_note) {//if short, *or* if its a long note, but we've already skipped a bar for it.
+						connectionsA.push_back(dangling_vertex_vertical);
+						connectionsB.push_back(current_index);
+						solution_index_tracker[current_note_index + 1][j].push_back(current_index);
+					}
+
+					current_index += 1;
+					positions.push_back(current_position_x + bevel_distance);
+					positions.push_back(current_position_y);
+					flags.push_back(IntersectionFlags::INTERSECTION);
+					connectionsA.push_back(current_index - 1);
+					connectionsB.push_back(current_index);
+					dangling_horizontal_lines[j] = current_index;
+					if (!(solution[current_note_index].is_long) || handled_long_note) {//if short, *or* if its a long note, but we've already skipped a bar for it.
+						solution_index_tracker[current_note_index + 1][j].push_back(current_index);
+					}
+					else {
+						solution_index_tracker[current_note_index][j].push_back(current_index);
+					}
+					current_index += 1;
+					if (solution[current_note_index].is_long && handled_long_note) {
+						current_note_index += 1; //middle note, bottom is ONLY case where we increment "Current note index" //TODO handle long note? if long, delay this one loop?
+						handled_long_note = false;
+					}
+					else if (solution[current_note_index].is_long) {
+						handled_long_note = true; // in this case, haven't finished drawing long note. don't increment current_note_index yet. 
+					}
+					else {
+						current_note_index += 1;
+					}
+
+				}
+			}
+			else {
+				//middle pitch somewhere
+				if (i == 0) {
+					//left edge
+					positions.push_back(current_position_x);
+					positions.push_back(current_position_y);
+					flags.push_back(IntersectionFlags::INTERSECTION);
+					solution_index_tracker[current_note_index][j].push_back(current_index);
+					dangling_starts[j] = current_index;
+					dangling_horizontal_lines[j] = current_index;
+					current_index += 1;
+				}
+				else if (i == puzzle_width) {
+					//right edge
+					positions.push_back(current_position_x);
+					positions.push_back(current_position_y);
+					flags.push_back(IntersectionFlags::INTERSECTION);
+					solution_index_tracker[current_note_index][j].push_back(current_index);
+					connectionsA.push_back(dangling_horizontal_lines[j]);
+					connectionsB.push_back(current_index);
+					dangling_ends[j] = current_index;
+					current_index += 1;
+				}
+				else {
+					//middle note somewhere
+					positions.push_back(current_position_x);
+					positions.push_back(current_position_y);
+					flags.push_back(IntersectionFlags::INTERSECTION);
+					solution_index_tracker[current_note_index][j].push_back(current_index);
+					if (!(solution[current_note_index].is_long) || handled_long_note) {//if short, *or* if its a long note, but we've already skipped a bar for it.
+						solution_index_tracker[current_note_index + 1][j].push_back(current_index);
+					}
+					/*else {
+						solution_index_tracker[current_note_index][j].push_back(current_index);
+					}*/
+					connectionsA.push_back(dangling_horizontal_lines[j]);
+					connectionsB.push_back(current_index);
+					if (!(solution[current_note_index].is_long) || handled_long_note) {//if short, *or* if its a long note, but we've already skipped a bar for it.
+						connectionsA.push_back(dangling_vertex_vertical);
+						connectionsB.push_back(current_index);
+					}
+					dangling_horizontal_lines[j] = current_index;
+					dangling_vertex_vertical = current_index;
+					current_index += 1;
+				}
+			}
+		}
+	}
+
+	//end of puzzle
+	//its *slightly* easier to place this *before* the loop.
+	//but like, it makes more sense here at the end
+	std::vector<int> ending_sequence;
+	positions.push_back(1.0 - start_end_margin);
+	positions.push_back(0.5);
+	flags.push_back(IntersectionFlags::ENDPOINT);
+	current_index += 1;
+	positions.push_back(1.0 - edge_margin_horizontal + (pitch_count % 2 == 0 ? 0 : bevel_distance)); //if odd, move slightly to right. So nodes don't overlap.
+	positions.push_back(0.5);
+	flags.push_back(IntersectionFlags::INTERSECTION);
+	connectionsA.push_back(current_index);
+	connectionsB.push_back(current_index - 1);
+	//note that currrent_index remains at the dangling end-location, ready for us to connect to the puzzle.
+	ending_sequence.push_back(current_index);
+	ending_sequence.push_back(current_index - 1);
+
+
+
+	int pre_puzzle_pitch = 0;
+	int post_puzzle_pitch = 0;
+	//reconnect starts/ends
+	//this is tricky depending on how things are.
+	//its also easiest to add the first link in the solution trace here, so that start note isn't special case.
+	for (int i = 0; i < (pitch_count - 1); i++) {
+		if (pitch_count % 2 == 0) {
+			if (i == ((pitch_count / 2) - 1)) {
+				connectionsA.push_back(1);
+				connectionsB.push_back(dangling_starts[i]);
+
+				connectionsA.push_back(current_index);
+				connectionsB.push_back(dangling_ends[i]);
+
+				//AND connect start back to the next node in sequence
+				connectionsA.push_back(1);
+				connectionsB.push_back(dangling_starts[i + 1]);
+
+				connectionsA.push_back(current_index);
+				connectionsB.push_back(dangling_ends[i + 1]);
+				if (solution_index[0] <= i) {
+					//go through upper of two nodes in solution
+					solution_sequence.push_back(dangling_starts[i]);
+					pre_puzzle_pitch = i;
+				}
+				else {
+					//go through lower of two nodes
+					solution_sequence.push_back(dangling_starts[i + 1]);
+					pre_puzzle_pitch = i + 1;
+				}
+				if (solution_index[solution_index.size() - 1] <= i) {
+					//at end, go through upper of two nodes leading to exit
+					ending_sequence.insert(ending_sequence.begin(), dangling_ends[i]);
+					post_puzzle_pitch = i;
+				}
+				else {
+					ending_sequence.insert(ending_sequence.begin(), dangling_ends[i + 1]);
+					post_puzzle_pitch = i + 1;
+				}
+
+			}
+			else {
+				connectionsA.push_back(dangling_starts[i]);
+				connectionsB.push_back(dangling_starts[i + 1]);
+
+				connectionsA.push_back(dangling_ends[i]);
+				connectionsB.push_back(dangling_ends[i + 1]);
+			}
+		}
+		else {//odd
+			if (i == (pitch_count / 2)) {
+				connectionsA.push_back(1);
+				connectionsB.push_back(dangling_starts[i]);
+
+				connectionsA.push_back(current_index);
+				connectionsB.push_back(dangling_ends[i]);
+
+				solution_sequence.push_back(dangling_starts[i]);
+				pre_puzzle_pitch = i;
+				ending_sequence.insert(ending_sequence.begin(), dangling_ends[i]);
+				post_puzzle_pitch = i;
+
+
+			}
+			//in addition, (always draw line to next.
+			connectionsA.push_back(dangling_starts[i]);
+			connectionsB.push_back(dangling_starts[i + 1]);
+
+			connectionsA.push_back(dangling_ends[i]);
+			connectionsB.push_back(dangling_ends[i + 1]);
+
+		}
+	}
+	//grid fully drawn, its safe to trace the solution path now.
+
+	auto previous_pitch = pre_puzzle_pitch;
+	auto current_pitch = 0;
+	for (int i = 0; i < (short_note_count + long_note_count); i++) {
+		current_pitch = solution_index[i];
+		auto next_partial_solution = solution_index_tracker[i][current_pitch];
+		auto sidestep = current_pitch - previous_pitch;
+		while (sidestep != 0) {
+			if (sidestep < 0) {
+				//move down one
+				previous_pitch -= 1;
+			}
+			else {
+				previous_pitch += 1;
+			}
+			solution_sequence.push_back(solution_index_tracker[i][previous_pitch][0]); //add that movement to path
+			sidestep = current_pitch - previous_pitch;
+		}
+		//for (auto step : next_partial_solution) {
+		//for (auto step : next_partial_solution | std::views::drop(1)) {
+		for (auto j = 1; j < next_partial_solution.size(); j++) {
+			solution_sequence.push_back(next_partial_solution[j]);
+		}
+
+	}
+	//connect ending solution
+	auto sidestep = post_puzzle_pitch - current_pitch;
+	while (sidestep != 0) {
+		if (sidestep < 0) {
+			//move down one
+			current_pitch -= 1;
+		}
+		else {
+			current_pitch += 1;
+		}
+		solution_sequence.push_back(solution_index_tracker[short_note_count + long_note_count - 1][current_pitch].back()); //add that movement to path
+		sidestep = post_puzzle_pitch - current_pitch;
+	}
+	for (auto i = 1; i < ending_sequence.size(); i++) {
+		solution_sequence.push_back(ending_sequence[i]);
+	}
+
+	//write grid+solution to game.
+	memory->WriteArray<float>(id, DOT_POSITIONS, positions);
+	memory->WriteArray<int>(id, DOT_CONNECTION_A, connectionsA);
+	memory->WriteArray<int>(id, DOT_CONNECTION_B, connectionsB);
+	memory->WriteArray<int>(id, DOT_FLAGS, flags);
+	memory->WritePanelData<int>(id, NUM_DOTS, flags.size());
+	memory->WritePanelData<int>(id, NUM_CONNECTIONS, connectionsA.size());
+	memory->WriteArray<int>(id, SEQUENCE, solution_sequence, true);
+	memory->WritePanelData<int>(id, SEQUENCE_LEN, solution_sequence.size());
+	memory->WritePanelData(id, NEEDS_REDRAW, 1);
+
+	//Now replace sound files.
+	auto new_sound = build_sound(solution);
+	for (auto soundname : sound_files_map[id]) {
+		auto original_sound = memory->getSoundData(soundname);
+		memory->LoadSound(original_sound, new_sound);
+	}
+	return;
 }

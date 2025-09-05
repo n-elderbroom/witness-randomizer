@@ -1100,7 +1100,18 @@ void PuzzleList::GenerateJungleN()
 	//specialCase->testFind({ 'b', 'i', 'r', 'd', '4' }); //0x52a2d8
 	//So the only thing that can be randomized currently, are the actual solutions.
 
-	generator->setLoadingData(L"Jungle", 4);
+	generator->setLoadingData(L"Jungle", 4+7);
+	generator->resetConfig();
+	specialCase->generateSoundWavePuzzle(0x002C4, Instrument::Bird, 2, 2, 0);
+	specialCase->generateSoundWavePuzzle(0x00767, Instrument::Bird, 3, 4, 0);
+	specialCase->generateSoundWavePuzzle(0x002C6, Instrument::Bird, 3, 5, 0);
+
+	specialCase->generateSoundWavePuzzle(0x0070E, Instrument::Bird, 3, 5, 0);
+	specialCase->generateSoundWavePuzzle(0x0070F, Instrument::Bird, 3, 3, 1);
+	specialCase->generateSoundWavePuzzle(0x0087D, Instrument::Bird, 3, 3, 1);
+	specialCase->generateSoundWavePuzzle(0x002C7, Instrument::Bird, 3, 3, 1);
+
+
 	generator->resetConfig();
 	specialCase->generateSoundDotPuzzle(0x0026D, { 2, 2 }, { DOT_SMALL, DOT_LARGE }, false);
 	specialCase->generateSoundDotPuzzle(0x0026E, { 2, 2 }, { DOT_SMALL, DOT_LARGE }, false);

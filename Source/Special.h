@@ -5,6 +5,7 @@
 #include "Generate.h"
 #include "Memory.h"
 #include "Panel.h"
+#include "Sounds.h"
 
 typedef std::set<Point> Shape;
 
@@ -82,6 +83,8 @@ public:
 	static void drawGoodLuckPanel(int id);
 
 	void test(); //For testing/debugging purposes only
+
+	void generateSoundWavePuzzle(int id, Instrument instrument, int pitch_count, int short_note_count, int long_note_count);
 
 	static void setTarget(int puzzle, int target)
 	{
